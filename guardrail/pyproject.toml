@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guardrail"
+version = "0.5.0"
+description = "IndoLog's first guardrail: request -> checks -> pass the output or fail with reasons"
+requires-python = ">=3.11"
+# Pinned to what the tests and the image were run with. FastAPI in particular: 0.142 exports
+# telemetry of its own, which guardrail/tracing.py switches off key by key; a later version could
+# add a signal that is on by default, so an upgrade is a change to read, not a rebuild.
+# These exact pins are right while this is installed only into its own image. If anything else
+# installs it as a package (the backend importing a client from it, say), move the exact pins to
+# the image's constraints or lock file and keep compatible ranges here (owner's decision, Q47).
+dependencies = ["fastapi==0.142.2", "pydantic==2.13.5", "uvicorn==0.54.0", "jsonschema==4.26.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "httpx>=0.27"]
+# The injection classifier. Only needed when that check is switched on in the policy.
+classifier = ["torch==2.14.1", "transformers==5.18.0"]
+# The database: versioned policy, the shared input store, the decision table and the admin API.
+# Only needed when GUARDRAIL_DATABASE_URL (or _HOST) is set. pg8000 is the driver: pure Python, BSD.
+postgres = ["sqlalchemy==2.1.3", "alembic==1.20.0", "pg8000==1.31.5", "PyJWT[crypto]==2.15.1"]
+# Traces. Only needed when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+otel = ["opentelemetry-sdk==1.45.0", "opentelemetry-exporter-otlp-proto-http==1.45.0"]
+
+# Exactly this package. "guardrail*" would also take a sibling such as the untracked libs/guardrails
+# build output if it were ever moved in here (open question Q9).
+[tool.setuptools.packages.find]
+include = ["guardrail", "guardrail.*"]
+
+[tool.setuptools.package-data]
+guardrail = ["migrations/*.py", "migrations/*.mako", "migrations/versions/*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

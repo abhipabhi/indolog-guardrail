@@ -1,0 +1,79 @@
+# The guardrail with its database, for local development and for the smoke test.
+#
+#   docker compose up --build        (from libs/guardrail)
+#   Guardrail: http://localhost:8001      Postgres: localhost:54330 (user and database: guardrail)
+#   python scripts/smoke_test.py http://localhost:8001
+#
+# What it starts:
+#   postgres   PostgreSQL 16, the major version assumed for the deployed server (provisional).
+#   setup      one shot: creates or upgrades the guardrail's tables, and if no policy version is
+#              active yet stores the rollout policy as version 1 and activates it.
+#   guardrail  the service, limited to 2 CPUs like the deployed container, on the rollout policy:
+#              five checks are enforced (injection rules, hidden characters, encoded content,
+#              `ingest`, and the output `schema` check); every other check is in shadow, and one
+#              of those that cannot run is recorded as not observed.
+#
+# Traces: off, unless GUARDRAIL_OTLP_ENDPOINT names an OTLP/HTTP receiver, for example
+#   python scripts/otlp_print.py 4318 &
+#   GUARDRAIL_OTLP_ENDPOINT=http://host.docker.internal:4318 docker compose up
+#
+# The password below is for this local stack only. A deployment supplies its own through
+# GUARDRAIL_DATABASE_PASSWORD and keeps GUARDRAIL_DATABASE_SSL at its default, `require`.
+name: guardrail-dev
+
+x-database: &database
+  GUARDRAIL_DATABASE_HOST: postgres
+  GUARDRAIL_DATABASE_PORT: "5432"
+  GUARDRAIL_DATABASE_NAME: guardrail
+  GUARDRAIL_DATABASE_USER: guardrail
+  GUARDRAIL_DATABASE_PASSWORD: ${GUARDRAIL_DB_PASSWORD:-guardrail-dev-only}
+  GUARDRAIL_DATABASE_SSL: disable
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: guardrail
+      POSTGRES_PASSWORD: ${GUARDRAIL_DB_PASSWORD:-guardrail-dev-only}
+      POSTGRES_DB: guardrail
+    ports:
+      - "127.0.0.1:54330:5432"
+    volumes:
+      - guardrail-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardrail -d guardrail"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  setup:
+    build: .
+    image: indolog-guardrail:dev
+    environment: *database
+    command: >
+      sh -c "python -m guardrail.policy_admin migrate &&
+             python -m guardrail.policy_admin ensure /app/rules.rollout.json --actor compose-setup"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  guardrail:
+    image: indolog-guardrail:dev
+    environment:
+      <<: *database
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${GUARDRAIL_OTLP_ENDPOINT:-}
+    ports:
+      - "127.0.0.1:8001:8000"
+    cpus: 2.0
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+
+volumes:
+  guardrail-pg:

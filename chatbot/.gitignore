@@ -1,0 +1,26 @@
+# The virtual environment and Python's caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Results and logs. The run log holds test emails and must never be committed. It is written to
+# logs/ here by default, and the app refuses any other place inside the repository that git does
+# not ignore. These lines are what keep it out: do not remove them.
+*.csv
+*.log
+logs/
+.chatbot-runs-*.tmp
+system-prompt.txt
+system-prompt.set-aside.txt
+.system-prompt-*.tmp
+
+# Settings files. Keys live in ~/.guardrail-chatbot.env, outside the repository. Never here.
+.env
+*.env
+.guardrail-chatbot.env
+!.env.example
+
+# macOS
+.DS_Store

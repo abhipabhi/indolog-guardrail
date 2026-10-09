@@ -1,0 +1,20 @@
+# Applies to the whole repository. guardrail/ and chatbot/ have their own rules as well; the
+# chatbot's keep its run log and settings out of git and must stay.
+
+# Secrets. Keys live in ~/.guardrail-chatbot.env, outside the repository. Never here.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Operating system
+.DS_Store
+Thumbs.db

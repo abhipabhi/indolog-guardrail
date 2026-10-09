@@ -1,0 +1,24 @@
+# Streamlit's own settings for the test chatbot.
+#
+# address: this machine only. To share it on a LAN, start it with `--server.address 0.0.0.0`
+#   AND a shared password in CHATBOT_PASSWORD (README.md); the app refuses to serve otherwise.
+# port: 8502, so it can run beside the guardrail testbench, which uses 8501.
+# browser.serverAddress: set, so that Streamlit prints one address at start and does not ask an
+#   outside service (checkip.amazonaws.com) for this machine's public address to print another.
+# gatherUsageStats: off. Streamlit would otherwise report usage to its maker.
+# logger: warnings and errors only. Nothing a tester types is logged; it goes to the run log only.
+[server]
+headless = true
+address = "localhost"
+port = 8502
+
+[browser]
+serverAddress = "localhost"
+gatherUsageStats = false
+
+[logger]
+level = "warning"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false

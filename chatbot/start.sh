@@ -14,6 +14,11 @@
 #     key that is there for other work does not connect a model by surprise.
 #   * It is read as text, not run as a script: each value is taken exactly as written.
 #
+# The first run also installs the app, into .venv in this folder, with uv (https://docs.astral.sh/uv).
+# uv brings Python 3.11 with it when this machine has none, so there is no Python to install and
+# no virtual environment to make by hand. After an update that changes requirements.txt, the next
+# start brings .venv up to date.
+#
 # The app listens on localhost only.
 # No value from the settings file, and nothing you type at the prompt, is ever printed.
 set -eu
@@ -26,14 +31,39 @@ GUARDRAIL_TIMEOUT_MS CHATBOT_CALL_MODEL_ON_REVIEW CHATBOT_MODEL_TIMEOUT_SECONDS 
 CHATBOT_OPENAI_MODEL CHATBOT_GROQ_MODEL CHATBOT_OLLAMA_MODEL CHATBOT_PASSWORD"
 stop() { echo "start.sh: $1" >&2; exit 1; }
 
-if [ ! -x "$HERE/.venv/bin/streamlit" ]; then
-    # A .venv made with an older Python cannot install the app, and pip's own error for that
-    # ("No matching distribution found") does not say why.
-    if [ -x "$HERE/.venv/bin/python" ] && ! "$HERE/.venv/bin/python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
-        stop "the .venv folder here was made with $("$HERE/.venv/bin/python" --version 2>&1), and the app needs Python 3.11. Delete the .venv folder, then in $HERE run:  python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt"
-    fi
-    stop "the app is not installed yet. In $HERE run:  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+# --- the app itself: installed by uv into .venv here, the first time and after an update ------------
+# uv's installer puts it in ~/.local/bin, which a terminal opened before the install does not
+# search yet, so it is looked for there as well.
+UV=$(command -v uv 2>/dev/null || true)
+if [ -z "$UV" ]; then
+    for candidate in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+        if [ -x "$candidate" ]; then UV=$candidate; break; fi
+    done
 fi
+INSTALLED="$HERE/.venv/requirements.installed"      # a copy of what was installed, to tell when an update changes it
+install_app() {
+    "$UV" pip install --python "$HERE/.venv/bin/python" -r "$HERE/requirements.txt" \
+        || stop "uv could not install the app; its own message is above. Check the internet connection and run ./start.sh again."
+    cp "$HERE/requirements.txt" "$INSTALLED"
+}
+if [ ! -x "$HERE/.venv/bin/streamlit" ]; then
+    [ -n "$UV" ] || stop "the app is not installed yet, and uv, which installs it, was not found. Install uv with:  curl -LsSf https://astral.sh/uv/install.sh | sh   Then run ./start.sh again."
+    echo "Installing the app into $HERE/.venv. This happens once and takes a minute or two, longer on a"
+    echo "slow connection: it downloads about 80 packages (about 500 MB on disk), and Python 3.11 if"
+    echo "this machine does not have it."
+    # --allow-existing: a .venv left by an earlier attempt, or made with another Python, is made again in place.
+    "$UV" venv --quiet --allow-existing --python 3.11 "$HERE/.venv" \
+        || stop "uv could not make $HERE/.venv; its own message is above. Check the internet connection and run ./start.sh again."
+    install_app
+    echo "Installed."
+    echo
+elif [ -n "$UV" ] && ! cmp -s "$HERE/requirements.txt" "$INSTALLED"; then
+    # An update changed requirements.txt, or .venv was made before this script kept a copy (then
+    # there is usually nothing to do, and uv says so in a moment).
+    [ ! -e "$INSTALLED" ] || echo "requirements.txt has changed since the app was installed. Bringing it up to date."
+    install_app
+fi
+# Without uv, a .venv that already holds the app (made by hand with pip) is started as it is.
 
 # --- the settings file: outside the repository, a plain file, yours, and private -------------------
 REPOSITORY=$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)

@@ -26,9 +26,12 @@ On either, you need:
 
 - **Docker Desktop**, installed and running.
 - **git**. Check with `git --version`. If it is missing, macOS offers to install it.
-- **Python 3.11.** Check with `python3 --version`. If it shows an older version (a Mac's
-  own `python3` is 3.9), install Python 3.11 from [python.org](https://www.python.org/downloads/)
-  and type `python3.11` wherever these steps say `python3`.
+- **uv**, which installs the chatbot together with the Python it needs, so it does not matter
+  which Python your Mac has. Install it once, in the Terminal app:
+
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
 
 Type the commands of these steps in the Terminal app.
 
@@ -53,13 +56,20 @@ WSL. You need Windows 10 (version 2004 or later) or Windows 11. Set it up once:
    and press "Apply & restart". Under General, "Use the WSL 2 based engine" should already be
    ticked.
 
-3. **In the Ubuntu terminal**, install git and the part of Python that makes its own folder:
+3. **In the Ubuntu terminal**, install git and curl:
 
    ```bash
-   sudo apt update && sudo apt install -y git python3-venv
+   sudo apt update && sudo apt install -y git curl
    ```
 
-   It asks for the password you chose in step 1. `python3 --version` should then show 3.12.
+   It asks for the password you chose in step 1.
+
+4. **Still in the Ubuntu terminal**, install uv, which installs the chatbot together with the
+   Python it needs:
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
 
 From here on, **type every command in the Ubuntu terminal**, not in PowerShell or Command Prompt.
 To paste into it, right-click, or press Ctrl+Shift+V. The pages these steps open
@@ -115,25 +125,19 @@ Go to the chatbot's folder:
 cd ~/indolog-guardrail/chatbot
 ```
 
-Install it, once:
-
-```bash
-python3 -m venv .venv
-```
-
-```bash
-.venv/bin/pip install -r requirements.txt
-```
-
 Start it:
 
 ```bash
 ./start.sh
 ```
 
-The first time, it asks for your Gemini API key. Paste it and press Enter; what you paste is not
-shown. The key is saved in a private file in your home folder, `~/.guardrail-chatbot.env`, which
-only you can read, and you are not asked again.
+The first time, it installs the app into a `.venv` folder here. That takes a minute or two: uv
+downloads about 80 packages, and Python 3.11 if your machine does not have it. There is no
+virtual environment to make or switch on yourself.
+
+Then it asks for your Gemini API key. Paste it and press Enter; what you paste is not shown. The
+key is saved in a private file in your home folder, `~/.guardrail-chatbot.env`, which only you
+can read, and you are not asked again.
 
 Then open http://localhost:8502. Leave the terminal open while you test; Ctrl+C stops the app.
 
@@ -416,8 +420,18 @@ Open http://localhost:8001/health again. Besides `"status":"ok"` it should show
 `"rules_error":null` and a `"rules_version"` that ends in `-rollout`. If it does not, the older
 rules are still stored: run the two commands again.
 
-Then install and start the chatbot as in Step 3 (`.venv/bin/pip install -r requirements.txt`, then
-`./start.sh`). Your key, your settings and your results file are kept.
+Then start the chatbot:
+
+```bash
+cd ~/indolog-guardrail/chatbot
+```
+
+```bash
+./start.sh
+```
+
+If the update changed what the app needs, the script installs that first, by itself. Your key,
+your settings and your results file are kept.
 
 ## Troubleshooting
 
@@ -428,9 +442,6 @@ running. Start it, wait until it says it is running, and run the command again.
 is not running, or it is not connected to Ubuntu. Start it, and in its Settings, under Resources,
 then WSL integration, switch on Ubuntu-24.04 and press "Apply & restart". Then close the Ubuntu
 terminal and open it again.
-
-**On Windows, `python3 -m venv .venv` says "ensurepip is not available".** Run the `sudo apt`
-command of [On Windows](#on-windows), step 3, then `python3 -m venv .venv` again.
 
 **On Windows, `./start.sh` says "bad interpreter", "command not found" on every line, or "No
 such file or directory".** The clone is on the `C:` drive (a path that starts with `/mnt/c`), or
@@ -468,18 +479,16 @@ line above. The guardrail's result on the screen is still valid.
 `~/.guardrail-chatbot.env`, run `./start.sh` again, and paste the key again, on its own, with
 nothing around it.
 
-**`pip install` fails with "No matching distribution found".** The `.venv` folder was made with a
-Python older than 3.11. On Windows that means an older Ubuntu: install Ubuntu-24.04 as in
-[On Windows](#on-windows). On a Mac, delete the `.venv` folder, then make it again with Python
-3.11 and install:
+**`./start.sh` says "uv, which installs it, was not found".** Install uv with the `curl` command
+under [Before you start](#before-you-start), then run `./start.sh` again. The same terminal will
+do: the script looks where uv's installer puts it.
 
-```bash
-python3.11 -m venv .venv
-```
+**`./start.sh` says "uv could not install the app" or "uv could not make" the `.venv` folder.**
+uv's own message is just above that line. It is nearly always the internet connection: run
+`./start.sh` again, and it carries on from what it already has.
 
-```bash
-.venv/bin/pip install -r requirements.txt
-```
+**You installed the chatbot before it used uv**, with `python3 -m venv` and `pip`. It goes on
+working as it is. Once uv is on your machine, `./start.sh` uses it for updates from then on.
 
 **`./start.sh` says the settings file "can be read or changed by others".** Run the `chmod`
 command it shows, and start again.
@@ -494,13 +503,13 @@ keep the clone in your home folder, as in Step 1.
 
 ## Supported systems
 
-- **macOS.** Tested, with Python 3.11.
+- **macOS.** Tested.
 - **Windows, inside WSL** (Ubuntu 24.04), as set up under [On Windows](#on-windows). The
-  chatbot's own steps were run on Linux with Python 3.12, in a container: the install, the start
-  script, and a test against the guardrail. The Windows side of it (installing WSL, Docker
-  Desktop's connection to Ubuntu, opening the pages from Windows) has not yet been run on a
-  Windows machine. If a step there does not behave as written, tell the person who asked you to
-  test.
+  chatbot's own steps were run on Linux, in a container whose only Python was 3.12: uv fetched
+  Python 3.11, `./start.sh` installed and started the app, and two tests reached the guardrail.
+  The Windows side of it (installing WSL, Docker Desktop's connection to Ubuntu, opening the
+  pages from Windows) has not yet been run on a Windows machine. If a step there does not behave
+  as written, tell the person who asked you to test.
 - **Windows without WSL** (PowerShell or Command Prompt alone) is not supported: the start script
   cannot run there.
 - **Linux** itself: as for WSL, from step 3 of [On Windows](#on-windows), with Docker installed

@@ -26,7 +26,7 @@ has the one-time setup for each. On Windows, every command below is typed in the
 
 ### The first time
 
-For someone who has Docker Desktop running, git and Python 3.11 (on Windows, Ubuntu's own 3.12):
+For someone who has Docker Desktop running, git and [uv](https://docs.astral.sh/uv/):
 
 ```bash
 cd ~
@@ -40,13 +40,12 @@ several minutes. Then:
 
 ```bash
 cd ~/indolog-guardrail/chatbot
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
 ./start.sh
 ```
 
-and open http://localhost:8502. The first time, `start.sh` asks for your own Gemini API key; the
-guide says where to get one.
+and open http://localhost:8502. The first time, `start.sh` installs the app with uv (a minute or
+two; uv brings the Python it needs), then asks for your own Gemini API key; the guide says where
+to get one.
 
 ### Every time after that
 

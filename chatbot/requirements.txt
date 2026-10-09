@@ -1,5 +1,5 @@
 # Everything the chatbot needs to run, each at the one version it was tested with.
-# Install into a virtual environment:  .venv/bin/pip install -r requirements.txt
+# ./start.sh installs them into .venv with uv. By hand:  uv venv --python 3.11 && uv pip install -r requirements.txt
 # The lines that end in a condition (after ;) apply only where the condition holds.
 altair==6.3.0
     # via streamlit

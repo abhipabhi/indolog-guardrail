@@ -83,13 +83,13 @@ docker compose up -d
 decisions. Do that before starting a newer version of this folder, because the guardrail keeps
 its rules in its own database and would otherwise go on holding the older version's.
 
-Without Docker (Python 3.11 or later):
+Without Docker, with [uv](https://docs.astral.sh/uv/), which brings the Python it needs. There
+is no virtual environment to switch on:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-uvicorn guardrail.app:app
+uv venv --python 3.11
+uv pip install -e .
+.venv/bin/uvicorn guardrail.app:app
 ```
 
 http://localhost:8000/docs then has the examples. This runs from `rules.json`, keeps what each
@@ -97,8 +97,8 @@ input check saw in memory, and writes decisions to the log only. With the classi
 database and tracing:
 
 ```bash
-pip install -e ".[classifier,postgres,otel]"
-python scripts/fetch_model.py protectai/deberta-v3-base-prompt-injection-v2 90c9989b1a342275dd0d1a95aad283c04e075671
+uv pip install -e ".[classifier,postgres,otel]"
+.venv/bin/python scripts/fetch_model.py protectai/deberta-v3-base-prompt-injection-v2 90c9989b1a342275dd0d1a95aad283c04e075671
 ```
 
 ## The contract

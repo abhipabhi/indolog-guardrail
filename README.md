@@ -21,11 +21,17 @@ what the results mean, and what to do when something goes wrong.
 > **Use fake or anonymised emails only.** When an email passes the guardrail, the whole email is
 > sent to the model's provider. Never paste a real customer's email.
 
-In short, for someone who has Docker Desktop running, git and Python 3.11:
+It runs on a Mac, and on Windows inside WSL (the Linux terminal that Windows provides). The guide
+has the one-time setup for each. On Windows, every command below is typed in the Ubuntu terminal.
+
+### The first time
+
+For someone who has Docker Desktop running, git and Python 3.11 (on Windows, Ubuntu's own 3.12):
 
 ```bash
+cd ~
 git clone https://github.com/abhipabhi/indolog-guardrail.git
-cd indolog-guardrail/guardrail
+cd ~/indolog-guardrail/guardrail
 docker compose up --build -d
 ```
 
@@ -33,7 +39,7 @@ Wait until `docker compose ps` shows the `guardrail` line as `(healthy)`. The fi
 several minutes. Then:
 
 ```bash
-cd ../chatbot
+cd ~/indolog-guardrail/chatbot
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ./start.sh
@@ -41,6 +47,26 @@ python3 -m venv .venv
 
 and open http://localhost:8502. The first time, `start.sh` asks for your own Gemini API key; the
 guide says where to get one.
+
+### Every time after that
+
+After you have stopped it, or shut down or restarted the computer: start Docker Desktop, wait
+until it is running, then
+
+```bash
+cd ~/indolog-guardrail/guardrail
+docker compose up -d
+```
+
+and, once `docker compose ps` shows the `guardrail` line as `(healthy)` (up to a minute):
+
+```bash
+cd ~/indolog-guardrail/chatbot
+./start.sh
+```
+
+Then open http://localhost:8502. Nothing is installed or built again, and the key is not asked
+for again.
 
 ## What is not here
 

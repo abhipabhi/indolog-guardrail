@@ -43,7 +43,8 @@ code that point to `tests/`, `docs/guardrail/`, `CLAUDE.md` or to scripts other 
 
 In containers, as it deploys (the guardrail limited to 2 CPUs, Postgres 16 beside it, the rollout
 policy). You need Docker Desktop, running, and about 10 GB of free disk space: the image is about
-3 GB and building it needs room.
+3 GB and building it needs room. On Windows, type these commands in the Ubuntu (WSL) terminal;
+the chatbot's guide has the one-time setup under "On Windows".
 
 ```bash
 docker compose up --build -d
@@ -70,6 +71,12 @@ To stop it:
 
 ```bash
 docker compose down
+```
+
+To start it again later, for example after a restart of the computer, with nothing built again:
+
+```bash
+docker compose up -d
 ```
 
 `docker compose down -v` also deletes what it has stored: its policy versions and its record of

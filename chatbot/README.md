@@ -12,32 +12,81 @@ This is a test tool. It is not part of the product.
 
 ## Before you start
 
-You need:
+It runs on a Mac, and on Windows inside WSL, which is the Linux terminal that Windows provides.
+Each needs a one-time setup, below. After that the steps are the same on both.
 
-- **Docker Desktop**, running, with about 10 GB of free disk space (the guardrail's image is
-  about 3 GB and building it needs room).
-- **git**.
-- **Python 3.11.** Check with `python3 --version`. If it shows an older version (a Mac's own
-  `python3` is 3.9), install Python 3.11 from [python.org](https://www.python.org/downloads/) and
-  type `python3.11` wherever these steps say `python3`.
+On either, you need:
+
+- **About 10 GB of free disk space.** The guardrail's image is about 3 GB and building it needs
+  room.
 - **Your own free Gemini API key** from [Google AI Studio](https://aistudio.google.com) ("Get API
   key"). It is yours: never share it, and never commit it.
 
-On a Mac, do the next step in a folder that is **not** inside Desktop, Documents or Downloads (for
-example a `code` folder in your home folder). See [Troubleshooting](#troubleshooting) for why.
+### On a Mac
+
+- **Docker Desktop**, installed and running.
+- **git**. Check with `git --version`. If it is missing, macOS offers to install it.
+- **Python 3.11.** Check with `python3 --version`. If it shows an older version (a Mac's
+  own `python3` is 3.9), install Python 3.11 from [python.org](https://www.python.org/downloads/)
+  and type `python3.11` wherever these steps say `python3`.
+
+Type the commands of these steps in the Terminal app.
+
+### On Windows
+
+The chatbot is started by a script that needs a Linux shell, so on Windows everything is done in
+WSL. You need Windows 10 (version 2004 or later) or Windows 11. Set it up once:
+
+1. **Install WSL with Ubuntu.** Right-click the Start button, choose "Terminal (Admin)" or
+   "Windows PowerShell (Admin)", and run:
+
+   ```powershell
+   wsl --install -d Ubuntu-24.04
+   ```
+
+   Restart the computer when it asks. Ubuntu then opens by itself (if it does not, open
+   "Ubuntu 24.04" from the Start menu) and asks you to choose a username and a password. The
+   password is not shown as you type it.
+
+2. **Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)** and
+   start it. In its Settings, under Resources, then WSL integration, switch on **Ubuntu-24.04**
+   and press "Apply & restart". Under General, "Use the WSL 2 based engine" should already be
+   ticked.
+
+3. **In the Ubuntu terminal**, install git and the part of Python that makes its own folder:
+
+   ```bash
+   sudo apt update && sudo apt install -y git python3-venv
+   ```
+
+   It asks for the password you chose in step 1. `python3 --version` should then show 3.12.
+
+From here on, **type every command in the Ubuntu terminal**, not in PowerShell or Command Prompt.
+To paste into it, right-click, or press Ctrl+Shift+V. The pages these steps open
+(`http://localhost:...`) open in your usual Windows browser.
 
 ## Step 1: get the code
 
-One clone:
+Clone into your home folder:
+
+```bash
+cd ~
+```
 
 ```bash
 git clone https://github.com/abhipabhi/indolog-guardrail.git
 ```
 
+The home folder is the right place on both systems. On a Mac it is outside Desktop, Documents and
+Downloads, which macOS guards. On Windows it is inside Ubuntu, not on the `C:` drive, which is
+where the start script can run. Every later step assumes the clone is at `~/indolog-guardrail`.
+
 ## Step 2: run the guardrail
 
+Docker Desktop must be running.
+
 ```bash
-cd indolog-guardrail/guardrail
+cd ~/indolog-guardrail/guardrail
 ```
 
 ```bash
@@ -60,10 +109,10 @@ The `guardrail` line should say `(healthy)`. Then open http://localhost:8001/hea
 
 ## Step 3: run the chatbot
 
-From the `guardrail` folder, go to the chatbot's folder:
+Go to the chatbot's folder:
 
 ```bash
-cd ../chatbot
+cd ~/indolog-guardrail/chatbot
 ```
 
 Install it, once:
@@ -87,6 +136,9 @@ shown. The key is saved in a private file in your home folder, `~/.guardrail-cha
 only you can read, and you are not asked again.
 
 Then open http://localhost:8502. Leave the terminal open while you test; Ctrl+C stops the app.
+
+Another day, or after a restart of the computer, you do not repeat these steps: see
+[Starting it again](#starting-it-again).
 
 ## Step 4: check it works
 
@@ -244,10 +296,23 @@ Every email is on its own. Nothing from an earlier email is sent with the next o
 Every run is saved as one row in a spreadsheet file inside the chatbot's own folder:
 
 ```
-indolog-guardrail/chatbot/logs/chatbot-runs.csv
+~/indolog-guardrail/chatbot/logs/chatbot-runs.csv
 ```
 
 git ignores that `logs` folder, so the file is never committed or pushed with the code.
+
+To open the folder that holds it, on a Mac:
+
+```bash
+open ~/indolog-guardrail/chatbot/logs
+```
+
+On Windows, from the Ubuntu terminal (this opens it in File Explorer, and the file opens in
+Excel from there):
+
+```bash
+cd ~/indolog-guardrail/chatbot/logs && explorer.exe .
+```
 
 | Column | What it holds |
 |---|---|
@@ -272,23 +337,72 @@ pasted, so do not put it anywhere public.
 
 ## When you are done
 
-Stop the chatbot with Ctrl+C in its terminal. Stop the guardrail from the `guardrail` folder:
+Stop the chatbot with Ctrl+C in its terminal. Stop the guardrail:
+
+```bash
+cd ~/indolog-guardrail/guardrail
+```
 
 ```bash
 docker compose down
 ```
 
+Shutting the computer down without doing this does no harm. Either way, the next section starts
+it again.
+
+## Starting it again
+
+After you have stopped it, or shut down or restarted the computer. Nothing is installed or built
+again, and your key is not asked for again.
+
+1. Start **Docker Desktop** and wait until it says it is running. Then open a terminal: the
+   Terminal app on a Mac, **Ubuntu** on Windows.
+
+2. Start the guardrail:
+
+   ```bash
+   cd ~/indolog-guardrail/guardrail
+   ```
+
+   ```bash
+   docker compose up -d
+   ```
+
+   It takes up to a minute to be ready. `docker compose ps` should show the `guardrail` line as
+   `(healthy)`, and http://localhost:8001/health should show `"status":"ok"`.
+
+3. Start the chatbot:
+
+   ```bash
+   cd ~/indolog-guardrail/chatbot
+   ```
+
+   ```bash
+   ./start.sh
+   ```
+
+Then open http://localhost:8502. Your results file, your settings and your own system prompt are
+as you left them.
+
 ## Updating to a newer version
 
-When you are told there is a new version, stop the chatbot with Ctrl+C. In your clone, get it:
+When you are told there is a new version, stop the chatbot with Ctrl+C. Get it:
+
+```bash
+cd ~/indolog-guardrail
+```
 
 ```bash
 git pull
 ```
 
-Then rebuild the guardrail, from the `guardrail` folder. The first command also deletes what the
-guardrail has stored, which is needed: it keeps its rules in its own database, and would
-otherwise go on holding the older version's.
+Then rebuild the guardrail. The `down -v` command also deletes what the guardrail has stored,
+which is needed: it keeps its rules in its own database, and would otherwise go on holding the
+older version's.
+
+```bash
+cd ~/indolog-guardrail/guardrail
+```
 
 ```bash
 docker compose down -v
@@ -310,14 +424,28 @@ Then install and start the chatbot as in Step 3 (`.venv/bin/pip install -r requi
 **"Cannot connect to the Docker daemon", or `docker compose` fails at once.** Docker Desktop is not
 running. Start it, wait until it says it is running, and run the command again.
 
+**On Windows, the Ubuntu terminal says "The command 'docker' could not be found".** Docker Desktop
+is not running, or it is not connected to Ubuntu. Start it, and in its Settings, under Resources,
+then WSL integration, switch on Ubuntu-24.04 and press "Apply & restart". Then close the Ubuntu
+terminal and open it again.
+
+**On Windows, `python3 -m venv .venv` says "ensurepip is not available".** Run the `sudo apt`
+command of [On Windows](#on-windows), step 3, then `python3 -m venv .venv` again.
+
+**On Windows, `./start.sh` says "bad interpreter", "command not found" on every line, or "No
+such file or directory".** The clone is on the `C:` drive (a path that starts with `/mnt/c`), or
+was made with git in PowerShell. Clone again in the Ubuntu terminal, as in Step 1, and work in
+that copy.
+
 **"No space left on device" while the image builds.** Free some disk space (about 10 GB) and run
 `docker compose up --build -d` again.
 
 **The top of the screen says "Guardrail policy: unknown", or a result is NEEDS REVIEW.** The
-chatbot cannot reach the guardrail. In the `guardrail` folder, run `docker compose ps`: the `guardrail`
-line should say `(healthy)`. If it is not there, run `docker compose up -d`. Then check
-http://localhost:8001/health again. If another program already uses port 8001, stop that program
-first.
+chatbot cannot reach the guardrail. It is not running, for example after a restart of the
+computer: follow [Starting it again](#starting-it-again). If it still happens, in
+`~/indolog-guardrail/guardrail` run `docker compose ps`: the `guardrail` line should say
+`(healthy)`. Then check http://localhost:8001/health again. If another program already uses port
+8001, stop that program first.
 
 **The health page shows a `rules_error`, or a `rules_version` that does not end in `-rollout`.**
 The guardrail still holds rules stored by an older version, and is running on its built-in set
@@ -341,7 +469,9 @@ line above. The guardrail's result on the screen is still valid.
 nothing around it.
 
 **`pip install` fails with "No matching distribution found".** The `.venv` folder was made with a
-Python older than 3.11. Delete the `.venv` folder, then make it again with Python 3.11 and install:
+Python older than 3.11. On Windows that means an older Ubuntu: install Ubuntu-24.04 as in
+[On Windows](#on-windows). On a Mac, delete the `.venv` folder, then make it again with Python
+3.11 and install:
 
 ```bash
 python3.11 -m venv .venv
@@ -357,15 +487,24 @@ command it shows, and start again.
 **On a Mac, `./start.sh` hangs, prints nothing, or says "Operation not permitted".** macOS guards
 the Desktop, Documents and Downloads folders, and is waiting for you to allow access (look for a
 dialog, or see System Settings, Privacy & Security, Files and Folders). The simplest fix is to
-keep the clone in another folder, such as `~/code`.
+keep the clone in your home folder, as in Step 1.
 
 **You want to change or remove your key.** Edit `~/.guardrail-chatbot.env`, or delete it and run
 `./start.sh` again. `.env.example` in this folder lists every setting.
 
 ## Supported systems
 
-macOS and Linux. It has been tested on macOS only. Windows is untested; use WSL2 there and follow
-the Linux steps.
+- **macOS.** Tested, with Python 3.11.
+- **Windows, inside WSL** (Ubuntu 24.04), as set up under [On Windows](#on-windows). The
+  chatbot's own steps were run on Linux with Python 3.12, in a container: the install, the start
+  script, and a test against the guardrail. The Windows side of it (installing WSL, Docker
+  Desktop's connection to Ubuntu, opening the pages from Windows) has not yet been run on a
+  Windows machine. If a step there does not behave as written, tell the person who asked you to
+  test.
+- **Windows without WSL** (PowerShell or Command Prompt alone) is not supported: the start script
+  cannot run there.
+- **Linux** itself: as for WSL, from step 3 of [On Windows](#on-windows), with Docker installed
+  your own way.
 
 ## Credit and licence
 

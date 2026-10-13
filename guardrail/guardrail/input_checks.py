@@ -13,7 +13,7 @@ import secrets
 from typing import Callable, Iterator
 
 from . import classifier, deadline
-from .normalize import (INVISIBLE, OCR_WATCH_WORDS, SMUGGLING, decoded_segments, decoded_views,  # noqa: F401
+from .normalize import (INVISIBLE, OCR_WATCH_WORDS, SMUGGLING, break_marks, decoded_segments, decoded_views,  # noqa: F401
                         joined_view, longest_encoded_block, ocr_view, plain_view, readable_view, unmasked_view,
                         visible)
 
@@ -93,9 +93,15 @@ def ingest(req, config) -> list[dict]:
 
 
 def hidden_characters(req, config) -> list[dict]:
-    failures = []
+    """Characters a reader cannot see, and words that mix alphabets. A zero-width space that only
+    marks where a line may break is not one of them (Q65, normalize.break_marks): an exporter put
+    it there. It is counted, so the record shows how often that is, and like every hidden
+    character it is taken out of what the model is given."""
+    failures, allowed = [], 0
     for source, text in _sources(req, config.parts("hidden_characters")):
-        smuggled, invisible = len(SMUGGLING.findall(text)), len(INVISIBLE.findall(text))
+        marks = break_marks(text)
+        allowed += marks
+        smuggled, invisible = len(SMUGGLING.findall(text)), len(INVISIBLE.findall(text)) - marks
         mixed = [w for w in _WORD.findall(text) if _LATIN.search(w) and _OTHER_SCRIPT.search(w)]
         if smuggled:
             failures.append({"source": source, "action": config.hidden_characters.tag_characters,
@@ -107,7 +113,7 @@ def hidden_characters(req, config) -> list[dict]:
             failures.append({"source": source, "action": config.hidden_characters.invisible,
                              "message": f"words mixing Latin with look-alike Cyrillic or Greek letters, "
                                         f"e.g. '{mixed[0][:30]}'"})
-    return failures
+    return failures + [{"action": "allow", "measures": {"zero_width_spaces_allowed": allowed}}]
 
 
 def _first_match(rule, text: str, crossing: int | None = None):

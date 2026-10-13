@@ -35,6 +35,16 @@ INVISIBLE = re.compile("[͏᠎​‎‏‪-‮⁠-⁤⁦-⁩ㅤ﻿ﾠ]")
 # instructions to models. Never legitimate in a business email.
 SMUGGLING = re.compile("[\U000e0000-\U000e007f\U000e0100-\U000e01ef]")
 SOFT_HYPHEN = "­"           # PDF extraction leaves these; removed silently
+ZERO_WIDTH_SPACE = "\u200b"
+# A PDF or chat exporter leaves a zero-width space where a line may break: at a line's end, beside a
+# space or a punctuation mark, alone or in a pair. On the first real mail read (Q65) that was every
+# one of 1,639, in four documents of fourteen. It is not a finding there. Anywhere else it is.
+LONGEST_BREAK_MARK = 2
+# Any run of characters that cannot be seen: the invisible ones above with the joiners they leave
+# alone, tag characters, the soft hyphen and control characters. Used to see what a zero-width space
+# stands next to; it does not decide what is a finding.
+_UNSEEN_RUN = re.compile("[\u034f\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u3164\ufeff\uffa0\u00ad"
+                         "\U000e0000-\U000e007f\U000e0100-\U000e01ef\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]+")
 # C0 and C1 control characters other than tab, newline and carriage return.
 _CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _SPACES = re.compile(r"[ \t ]+")
@@ -65,6 +75,22 @@ _BETWEEN_LETTERS = re.compile(r"(?<=[A-Za-z])[.\-_*~|]+(?=[A-Za-z])")
 _REVERSED_RUN = re.compile("‮([^‬\n]*)‬?")
 _PAGE_BREAK = re.compile(r"^[ \t]*[-=_*]{2,}[ \t]*page[ \t]+\d+([ \t]+of[ \t]+\d+)?[ \t]*[-=_*]{2,}[ \t]*$",
                          re.IGNORECASE | re.MULTILINE)
+
+
+def break_marks(text: str) -> int:
+    """How many zero-width spaces in `text` only mark where a line may break (Q65). Such a one is
+    alone or in a pair, has no other unseen character beside it, and does not sit between two
+    letters or digits: "ig" + it + "nore" is a disguise, "Rotterdam." + it + a line break is not."""
+    allowed = 0
+    for run in _UNSEEN_RUN.finditer(text):
+        marks = run.group()
+        if len(marks) > LONGEST_BREAK_MARK or marks.strip(ZERO_WIDTH_SPACE):
+            continue                # a long run, or something else unseen is part of it
+        before = text[run.start() - 1] if run.start() else ""
+        after = text[run.end()] if run.end() < len(text) else ""
+        if not (before.isalnum() and after.isalnum()):
+            allowed += len(marks)
+    return allowed
 
 
 def strip_hidden(text: str) -> str:

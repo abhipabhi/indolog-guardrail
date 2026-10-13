@@ -57,6 +57,7 @@ REQUIRED_INJECTION_RULES: tuple[str, ...] = (
     "tool_call_syntax", "field_manipulation", "instruction_override", "identity_or_limits",
     "data_exfiltration", "shipment_manipulation", "shipment_manipulation_hindi", "payment_detail_change",
     "payment_redirection", "ai_internals", "override_hindi", "override_hinglish", "override_european",
+    "secret_request", "authority_claim", "access_bypass", "indirection", "claimed_agreement",
 )
 REQUIRED_INTENT_SCHEMAS: tuple[str, ...] = (
     "rfq", "quotation", "shipment_status", "invoice_query", "outstanding", "complaint_shipment", "complaint_billing",

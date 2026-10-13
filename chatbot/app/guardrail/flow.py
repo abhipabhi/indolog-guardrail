@@ -234,8 +234,8 @@ def run_extraction(test: Case, model: Model | None, schema: dict | None = None, 
 
     if only_after_pass and verdict.status != "pass":
         return done(Outcome("held_for_review", KINDS["held_for_review"], detail=notes + [
-            "The check before the model asked for a review, so nothing is sent to a model. "
-            "The backend does have the model read this email."]))
+            "This test stops here: the check before the model asked for a review, and this test does not send a "
+            "reviewed email to a model. The product does not stop here: its backend has the model read this email."]))
     if prompt is None:
         return done(Outcome(kind, KINDS[kind], detail=notes + [
             "The guardrail returned no prompt, so the testbench has nothing to send to a model and stops here."]))
@@ -312,12 +312,14 @@ def run_chat(test: Case, model: Model | None, *, only_after_pass: bool = False) 
 
     held = only_after_pass and (asked.status != "pass" or read.status != "pass")
     if model is None or prompt is None or held:
-        why = ("The check before the model asked for a review, so nothing is sent to a model. "
-               "The backend does call the model here." if held else
+        why = ("This test stops here: the check before the model asked for a review, and this test does not send a "
+               "reviewed message to a model. The product does not stop here: its backend calls the model." if held else
                "The guardrail returned no prompt, so the testbench has nothing to send to a model and stops here."
                if prompt is None else "Model mode is none, so the test stops here. The prompt the guardrail returned is below.")
-        would = ("If the reply then passes its own check, the user sees it followed by: " + " ".join(cautions)
-                 if cautions else "If the reply then passes its own check, the user sees it as the model wrote it.")
+        # Held: what follows is the product's doing, not this test's. Said so, or the two lines contradict each other.
+        if_reply = "In the product, if the model's reply then passes its own check" if held else "If the reply then passes its own check"
+        would = (f"{if_reply}, the user sees it followed by: " + " ".join(cautions)
+                 if cautions else f"{if_reply}, the user sees it as the model wrote it.")
         kind = "held_for_review" if held else "prompt_ready"
         return done(Outcome(kind, KINDS[kind], detail=[why, would]), [question_id, read_id])
 

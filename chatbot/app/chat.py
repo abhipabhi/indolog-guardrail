@@ -58,11 +58,23 @@ EMAIL, CHAT = "email", "chat"   # the two kinds of run, as the screen and the lo
 # What the guardrail did, in the words the screen and the log use.
 STATUS = {flow.PASS: "pass", flow.REVIEW: "review", flow.STOPPED: "fail", flow.NOT_SCORED: "needs review"}
 IN_PLAIN_WORDS = {
-    "pass": "The guardrail found nothing. The message goes on as normal.",
+    "pass": "The guardrail found nothing in what you sent, so the message goes on as normal. This line is about the "
+            "guardrail's check of the message and nothing else: it does not say that the model answered. What the model "
+            "replied, and what the user was shown, are above.",
     "review": "The guardrail let it through and asked for a person to look at it.",
     "fail": "The guardrail stopped it.",
     "needs review": "The guardrail could not be reached, so nothing was checked and nothing was sent to a model. "
                     "A person has to look at this one.",
+}
+# The two one-word replies the guardrail's instructions tell the model to give. Each is the model's own
+# doing: the guardrail can have found nothing in the message and the model still decline to answer it.
+MODEL_DECLINED = {
+    "REFUSE": "REFUSE is the model itself declining: its instructions tell it to reply with this one word to a request "
+              "that is not about freight. It is not the guardrail's verdict on the message. The user is shown the "
+              "fallback above.",
+    "NO_ANSWER": "NO_ANSWER is the model itself saying it cannot answer from the documents it was given, as its "
+                 "instructions tell it to. It is not the guardrail's verdict on the message. The user is shown the "
+                 "fallback above.",
 }
 NOT_SHOWN = "(nothing was shown to a user in this run) "
 NO_USER = "(an incoming email: nothing is shown to a user) "
@@ -136,6 +148,10 @@ class EditedSystemPrompt:
     def answered_by(self) -> str | None:
         return getattr(self._model, "answered_by", None)
 
+    @property
+    def tries(self) -> int | None:
+        return getattr(self._model, "tries", None)
+
     def complete(self, system: str, user: str, *, json_schema: dict | None = None) -> ModelReply:
         self.sent = system_prompt_sent(self._template, system)
         return self._model.complete(self.sent, user, json_schema=json_schema)
@@ -166,14 +182,33 @@ def found_in(source: str | None, field: str | None = None, stage: str = "input")
     return part + (" (after decoding)" if source != name else "")
 
 
-def hint(run: flow.Run, model_variables: list[str] | None = None) -> str | None:
+def hint(run: flow.Run, model_variables: list[str] | None = None, tries: int | None = None) -> str | None:
     """What a tester can do about a run that went wrong for a reason that is not the guardrail's.
-    `model_variables`: the setting that names the model of each provider that was asked."""
-    if run.outcome.kind == "model_error" and any("MODEL NOT FOUND" in line for line in run.outcome.detail):
-        which = " or ".join(model_variables or ["CHATBOT_GEMINI_MODEL"])
+    `model_variables`: the setting that names the model of each provider that was asked. `tries`:
+    how many times the model was asked for this reply."""
+    if run.outcome.kind != "model_error":
+        return None
+    which = " or ".join(model_variables or ["CHATBOT_GEMINI_MODEL"])
+    if any("MODEL NOT FOUND" in line for line in run.outcome.detail):
         return (f"The provider does not offer this model, or not to your key. Set {which} in your settings file "
                 "(~/.guardrail-chatbot.env) to a model it does offer, for example gemini-3.5-flash-lite, and start the app again.")
+    if any("HTTP 503" in line for line in run.outcome.detail):
+        asked = f"{tries} times in a row" if tries and tries > 1 else "when asked"
+        return (f"The provider answered that it is busy (HTTP 503) {asked}. That is the provider's fault, not the guardrail's "
+                "and not your key's, and it is NOT a result of your test: do not record this run as a pass or a fail. Run it "
+                f"again in a minute. If it keeps happening, set {which} in your settings file (~/.guardrail-chatbot.env) to "
+                "another model and start the app again. The guardrail's check of the message, below, is still valid.")
     return None
+
+
+def rule_rows(run: flow.Run) -> list[dict]:
+    """The rules that fired, one row for each rule in each place it was found. In chat the
+    question is checked twice, alone and then with the email, so a rule found in the question
+    comes back twice: that is one finding, and it is listed once."""
+    rows = [{"rule id": finding["rule"] or finding["check"], "asks for": finding["action"],
+             "found in": found_in(finding["source"], finding["field"], call.stage),
+             "what the rule is about": finding["message"]} for call in run.calls for finding in call.findings]
+    return list({tuple(row.items()): row for row in rows}.values())
 
 
 def user_would_see(run: flow.Run) -> str:

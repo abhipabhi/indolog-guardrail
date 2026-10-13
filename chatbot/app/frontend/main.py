@@ -15,7 +15,11 @@ from app.backend.llm import provider  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.guardrail import guardrail_io  # noqa: E402
 
-RESULT = {"pass": "PASS", "review": "REVIEW", "fail": "FAIL", "needs review": "NEEDS REVIEW"}
+# What the guardrail made of the message. Not "PASS": a tester read "PASS" beside a reply the model
+# had refused as a contradiction, and beside nothing else as "the test passed". It is neither.
+RESULT = {"pass": "NOTHING FOUND", "review": "REVIEW", "fail": "FAIL", "needs review": "NEEDS REVIEW"}
+# The boxes a message is typed into, and what each holds when it is empty.
+BOXES = {"email": "", "attachment": "", "question": "", "intent": chat.CHAT}
 QUESTION_HELP = ("Intent chat: type a question to test chat, for example 'write me a Python script' (should be refused) "
                  "or 'when does the vessel arrive?'. Leave the question empty and the email is read as the question.",
                  "Intent rfq: tests an incoming email, which is how the extraction pipeline works. The question is not used.")
@@ -125,6 +129,39 @@ def header(folder) -> None:
 
 # --- one run ---------------------------------------------------------------------------------------
 
+def _typed() -> chat.Message:
+    """What is in the boxes now."""
+    state, picked = st.session_state, st.session_state.get("intent", chat.CHAT)
+    return chat.Message(email=state.get("email", ""), attachment=state.get("attachment", ""),
+                        question=state.get("question", ""), intent="" if picked == chat.CHAT else picked)
+
+
+def _cannot_run(message: chat.Message) -> str | None:
+    if chat.mode(message) == chat.EMAIL:
+        return None if message.email.strip() or message.attachment.strip() else "Paste an email to test."
+    if message.question.strip() or message.email.strip():
+        return None
+    return "Type a question, or paste an email to be read as the question."
+
+
+def _take() -> None:
+    """Run was pressed. What is in the boxes becomes this run's message, and the boxes are emptied
+    there and then: the next run starts from nothing, so no text of this one can go along with it
+    unseen. (An email left in its box from one test was sent with the next four, and its finding
+    was written down as theirs.) A message that cannot be run is left where it is, to be put right."""
+    message = _typed()
+    st.session_state["cannot_run"] = _cannot_run(message)
+    if st.session_state["cannot_run"]:
+        return
+    st.session_state["to_run"] = message
+    st.session_state.update(BOXES)
+
+
+def _put_back(message: chat.Message) -> None:
+    st.session_state.update(email=message.email, attachment=message.attachment, question=message.question,
+                            intent=message.intent or chat.CHAT)
+
+
 def form(folder) -> None:
     edited = system_prompt(folder)  # read here, before Run; the box itself is at the bottom of the page
     st.text_area("Email text", key="email", height=220, placeholder="Paste the test email here.")
@@ -143,18 +180,16 @@ def form(folder) -> None:
     st.caption("  \n".join(QUESTION_HELP))
     if edited:
         st.caption(":orange[An edited system prompt is in use.] It is at the bottom of the page.")
-    if not st.button("Run", type="primary", disabled=folder is None):
+    st.button("Run", type="primary", disabled=folder is None, on_click=_take)
+    st.caption("Every box is emptied when you press Run, so nothing from one test is sent with the next. "
+               "What you sent is kept with the result, where one button puts it back.")
+    if st.session_state.get("cannot_run"):
+        st.error(st.session_state.pop("cannot_run"))
         return
-    picked = st.session_state["intent"]
-    message = chat.Message(email=st.session_state["email"], attachment=st.session_state["attachment"],
-                           question=st.session_state["question"], intent="" if picked == chat.CHAT else picked)
+    message = st.session_state.pop("to_run", None)
+    if message is None or folder is None:
+        return
     email_run = chat.mode(message) == chat.EMAIL
-    if email_run and not (message.email.strip() or message.attachment.strip()):
-        st.error("Paste an email to test.")
-        return
-    if not email_run and not (message.question.strip() or message.email.strip()):
-        st.error("Type a question, or paste an email to be read as the question.")
-        return
     try:
         model = provider.model_for(settings)
     except Exception as problem:  # noqa: BLE001  a provider's client can refuse its settings in many ways
@@ -165,7 +200,8 @@ def form(folder) -> None:
     with st.spinner("Checking"):
         run = chat.run_message(message, model, call_model_on_review=settings.call_model_on_review,
                                schema=intent_schemas().get(message.intent) if email_run else None)
-    last = {"run": run, "answered_by": getattr(model, "answered_by", None), "logged": None, "log_problem": None,
+    last = {"run": run, "message": message, "answered_by": getattr(model, "answered_by", None),
+            "tries": getattr(model, "tries", None), "logged": None, "log_problem": None,
             "email_is_question": chat.email_is_question(message), "system_prompt": edited,
             "system_sent": getattr(model, "sent", None)}
     try:
@@ -191,15 +227,19 @@ def show(last: dict, folder) -> None:
                 st.write("No text was shown to a user in this run.")
             for line in run.outcome.detail:
                 st.write(f"- {line}")
-            hint = chat.hint(run, [p.model_variable for p in provider.configured(settings)])
+            hint = chat.hint(run, [p.model_variable for p in provider.configured(settings)], last.get("tries"))
             if hint:
                 st.info(hint)
 
         st.markdown("**The model's extraction**" if email_run else "**The model's reply**")
+        tries = last.get("tries") or 1
         if run.model_reply is not None:
             st.caption("As the model wrote it, before the guardrail checked it"
-                       + (f" · answered by `{last['answered_by']}`" if last["answered_by"] else "") + ".")
+                       + (f" · answered by `{last['answered_by']}`" if last["answered_by"] else "")
+                       + (f" · the provider was busy (HTTP 503) at first; this is its reply to try {tries}" if tries > 1 else "") + ".")
             st.code(run.model_reply, language=None, wrap_lines=True)
+            if not email_run and run.model_reply.strip() in chat.MODEL_DECLINED:
+                st.caption(chat.MODEL_DECLINED[run.model_reply.strip()])
         elif run.model_called:
             st.write("The model was called and gave no reply.")
         elif run.model_mode == "none":
@@ -214,16 +254,13 @@ def show(last: dict, folder) -> None:
                    + (f" · an incoming email, intent `{run.test.intent}`" if email_run else
                       " · chat, the email read as the question" if last.get("email_is_question") else " · chat")
                    + (" · system prompt edited" if last.get("system_prompt") else ""))
-        st.markdown(f"## Result: {RESULT[status]}")
+        st.markdown(f"## Guardrail check: {RESULT[status]}")
         st.write(chat.IN_PLAIN_WORDS[status])
 
         st.markdown("**Rules that fired**")
-        findings = [(call.stage, finding) for call in run.calls for finding in call.findings]
-        if findings:
-            # A plain table: a tester copies rule ids out of it.
-            st.table([{"rule id": f["rule"] or f["check"], "asks for": f["action"],
-                       "found in": chat.found_in(f["source"], f["field"], stage),
-                       "what the rule is about": f["message"]} for stage, f in findings])
+        rows = chat.rule_rows(run)
+        if rows:
+            st.table(rows)          # a plain table: a tester copies rule ids out of it
         else:
             st.write("None.")
         for name in chat.rule_ids(run)[len(run.rules_fired):]:
@@ -231,6 +268,17 @@ def show(last: dict, folder) -> None:
         for call in run.calls:
             if call.unavailable:
                 st.write(f"The guardrail could not be used for this step ({call.unavailable}). That is never treated as a pass.")
+
+        sent = last.get("message")
+        if sent is not None:
+            with st.expander("What you sent in this run"):
+                st.caption("The boxes were emptied when you pressed Run. This is what was in them.")
+                for label, text in (("Email text", sent.email), ("Attachment text", sent.attachment), ("Question", sent.question)):
+                    st.caption(label + ("" if text.strip() else ": empty"))
+                    if text.strip():
+                        st.code(text, language=None, wrap_lines=True)
+                st.caption(f"Intent: {sent.intent or chat.CHAT}")
+                st.button("Put these back in the boxes", on_click=_put_back, args=(sent,))
 
         if run.prompt:
             with st.expander("The prompt " + ("sent to the model" if run.model_called else "that would be sent to the model"),

@@ -20,6 +20,8 @@ Testers use Google Gemini with their own key. Three more providers are wired the
     Providers retire models; a call for one that is gone comes back as "model not found".
   * A call comes back as text, a refusal code or an error code. The text of a provider's error is
     never kept or shown: it can quote the prompt, which holds the test email.
+  * A provider that answers "busy" (HTTP 503) is asked again, twice, a few seconds apart. Only a
+    third 503 is reported: a busy provider is not a result of the test.
 
 Test emails go to every provider configured here. `describe()` says which, and the screen shows
 it before anything is sent.
@@ -27,6 +29,8 @@ it before anything is sent.
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -111,6 +115,8 @@ def _client(provider: Provider, settings: Settings) -> Any:
 
 
 MODEL_NOT_FOUND = "model_not_found"
+BUSY = "http_503"                       # the provider is overloaded: its fault, and usually over in seconds
+WAITS_WHEN_BUSY = (2.0, 5.0)            # seconds before the second and the third try; then it is reported
 
 
 def _status(problem: BaseException) -> int | None:
@@ -158,13 +164,28 @@ class Chain:
     """The configured providers, the next one tried whenever a call fails. This is what the flow
     (app/guardrail/flow.py) asks for a reply."""
 
-    def __init__(self, providers: list[Provider], settings: Settings, clients: list[Any] | None = None) -> None:
+    def __init__(self, providers: list[Provider], settings: Settings, clients: list[Any] | None = None,
+                 wait: Callable[[float], None] = time.sleep) -> None:
         self.providers = providers
         self.name = " > ".join(provider.id for provider in providers)
         self._clients = clients if clients is not None else [_client(provider, settings) for provider in providers]
+        self._wait = wait
         self.answered_by: str | None = None     # the model that wrote the last reply, when it said
+        self.tries = 0                          # how many times the last reply was asked for
 
     def complete(self, system: str, user: str, *, json_schema: dict | None = None) -> ModelReply:
+        """One reply. A busy provider (HTTP 503) is asked again after each wait in WAITS_WHEN_BUSY;
+        any other outcome, and the 503 after the last wait, is returned as it is."""
+        self.tries = 0
+        for pause in (*WAITS_WHEN_BUSY, None):
+            self.tries += 1
+            reply = self._once(system, user, json_schema)
+            if reply.error != BUSY or pause is None:
+                return reply
+            self._wait(pause)
+        return reply
+
+    def _once(self, system: str, user: str, json_schema: dict | None) -> ModelReply:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         self.answered_by = None

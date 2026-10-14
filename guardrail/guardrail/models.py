@@ -53,7 +53,7 @@ ALWAYS_ENFORCED: dict[str, tuple[str, ...]] = {
 # not something a policy edit can do. A policy may add rules and intents. What a rule's patterns
 # say, and what a schema allows, is still the policy's to decide.
 REQUIRED_INJECTION_RULES: tuple[str, ...] = (
-    "ai_override", "prompt_extraction", "role_hijack", "ai_addressed", "chat_template_tokens",
+    "ai_override", "prompt_extraction", "role_hijack", "role_assignment", "ai_addressed", "chat_template_tokens",
     "tool_call_syntax", "field_manipulation", "instruction_override", "identity_or_limits",
     "data_exfiltration", "shipment_manipulation", "shipment_manipulation_hindi", "payment_detail_change",
     "payment_redirection", "ai_internals", "override_hindi", "override_hinglish", "override_european",

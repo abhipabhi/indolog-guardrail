@@ -29,9 +29,10 @@ ENV GUARDRAIL_MODELS_DIR=/app/models \
 COPY guardrail ./guardrail
 RUN pip install --no-cache-dir --no-deps --force-reinstall .
 
-# Both policies are in the image. It starts with the ROLLOUT policy. Five checks are enforced in
+# Both policies are in the image. It starts with the ROLLOUT policy. Six checks are enforced in
 # it: the four every policy enforces (the injection rules, hidden characters, encoded content,
-# `ingest`) and, by the owner's choice, the output `schema` check. Every other check is in shadow:
+# `ingest`) and, by the owner's choice, the output `schema` check and the reply's `leakage` check.
+# Every other check is in shadow:
 # nothing it finds (or its failing to run) changes an answer; every decision is written down with
 # its scores and the rules that fired, and a check that could not run is in it as `not_observed`.
 # Moving a shadow check to enforce is a policy change (see scripts/rollout_policy.py), not a new

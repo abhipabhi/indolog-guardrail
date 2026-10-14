@@ -9,9 +9,9 @@
 #   setup      one shot: creates or upgrades the guardrail's tables, and if no policy version is
 #              active yet stores the rollout policy as version 1 and activates it.
 #   guardrail  the service, limited to 2 CPUs like the deployed container, on the rollout policy:
-#              five checks are enforced (injection rules, hidden characters, encoded content,
-#              `ingest`, and the output `schema` check); every other check is in shadow, and one
-#              of those that cannot run is recorded as not observed.
+#              six checks are enforced (injection rules, hidden characters, encoded content,
+#              `ingest`, the output `schema` check and the reply's `leakage` check); every other
+#              check is in shadow, and one of those that cannot run is recorded as not observed.
 #
 # Traces: off, unless GUARDRAIL_OTLP_ENDPOINT names an OTLP/HTTP receiver, for example
 #   python scripts/otlp_print.py 4318 &

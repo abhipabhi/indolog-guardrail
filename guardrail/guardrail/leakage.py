@@ -19,14 +19,25 @@ numbers passes Verhoeff: bank account numbers on invoices and e-way bill numbers
 as cards and Aadhaar numbers on the evaluation set before these conditions were added. The price:
 an Aadhaar number written without separators and without the word near it is not caught.
 
+In a chat reply there is a second path, by label (DECISIONS.md Q69): a number or code written after
+"Account no", "A/c", "Aadhaar" (or Aadhar, adhaar, adhar, आधार) or "IFSC" is masked to its last four
+characters, whatever its length and whether or not its check digit is right. The checks above say
+what a number IS; this one goes by what the text CALLS it, so a made-up or mistyped number is masked
+as well as a real one. It reads the reply with disguises undone, as the input checks read a
+request, and follows base64, hex and ROT13. Extractions do not take this path: there a bank account
+is a field to extract, and `high_impact_fields` already sends it to a person.
+
 `find()` returns what was found and where; `mask()` returns the text with each find replaced: a
 secret by a placeholder, a card or Aadhaar number by its last four digits. Nothing here logs, and a
 finding never carries the text it matched.
 """
 from __future__ import annotations
 
+import codecs
 import re
 from dataclasses import dataclass
+
+from .normalize import encoded_runs, traced_view
 
 
 @dataclass(frozen=True)
@@ -146,10 +157,63 @@ def _last_four(original: str) -> str:
     return "X" * (len(digits) - 4) + digits[-4:]
 
 
+# --- by label, in a reply (Q69) -----------------------------------------------------------------------
+
+# The label, then what may stand between it and the value (a colon, "is", Markdown or a table bar,
+# one line break), then the value: four digits or more for an account or Aadhaar number, spaces and
+# hyphens allowed between them; a code with a digit in it for an IFSC.
+_BETWEEN = r"[ \t*_|]*(?:[:#=\-\u2013\u2014]|is\b)?[ \t*_|]*(?:\r?\n[ \t*_|]*)?"
+_LABELLED = re.compile(
+    r"(?<![A-Za-z])(?:"
+    r"(?P<account>(?:account|acct|acc)[ \t]*(?:no|number|num|nr)\b\.?|account[ \t]*#|a[ \t]*/[ \t]*c\b(?:[ \t]*(?:no|number)\b\.?)?)"
+    r"|(?P<aadhaar>(?:aadhaar|aadhar|adhaar|adhar)\b(?:[ \t]*(?:no|number|card(?:[ \t]*no)?)\b\.?)?"
+    r"|\u0906\u0927\u093e\u0930(?:[ \t]*(?:\u0928\u0902\u092c\u0930|\u0938\u0902\u0916\u094d\u092f\u093e))?)"
+    r")" + _BETWEEN + r"(?P<number>\d(?:[ \-]?\d){3,})"
+    r"|(?<![A-Za-z])(?P<ifsc>ifsc\b(?:[ \t]*code\b)?)" + _BETWEEN + r"(?P<code>[A-Za-z0-9]{4,}(?:-[A-Za-z0-9]+)*)",
+    re.IGNORECASE)
+_LABEL_KIND = {"account": "labelled.account_number", "aadhaar": "labelled.aadhaar_number", "ifsc": "labelled.ifsc"}
+
+
+def _last_four_characters(value: str) -> str:
+    characters = re.sub(r"[^0-9A-Za-z]", "", value)
+    return "X" * (len(characters) - 4) + characters[-4:]
+
+
+def _labelled_values(seen: str) -> list[tuple[str, int, int, str]]:
+    """(kind, start, end, value) for each labelled value in `seen`, with more than four characters to hide."""
+    out = []
+    for match in _LABELLED.finditer(seen):
+        group = "number" if match.group("number") else "code"
+        value = match.group(group)
+        if len(re.sub(r"[^0-9A-Za-z]", "", value)) <= 4 or (group == "code" and not re.search(r"\d", value)):
+            continue
+        label = next(name for name in ("account", "aadhaar", "ifsc") if match.group(name))
+        out.append((_LABEL_KIND[label], match.start(group), match.end(group), value))
+    return out
+
+
+def _labelled(text: str) -> list[Found]:
+    found: list[Found] = []
+    seen, spans = traced_view(text)
+    # ROT13 changes letters one for one and leaves digits alone, so a rotated label points at the
+    # same characters as a plain one.
+    for view in (seen, codecs.encode(seen, "rot13")):
+        for kind, start, end, value in _labelled_values(view):
+            found.append(Found(kind, spans[start][0], spans[end - 1][1], _last_four_characters(value)))
+    # In base64 or hex the number cannot be shortened in place: the whole run goes.
+    for start, end, decoded in encoded_runs(text):
+        kinds = [kind for kind, *_ in _labelled_values(traced_view(decoded)[0])]
+        if kinds:
+            found.append(Found(kinds[0], start, end, "[encoded text removed]"))
+    return found
+
+
 # --- finding and masking ------------------------------------------------------------------------------
 
-def find(text: str) -> list[Found]:
-    """Everything found, in order, with no overlaps (the earliest, then the longest, wins)."""
+def find(text: str, labelled: bool = False) -> list[Found]:
+    """Everything found, in order, with no overlaps (the earliest, then the longest, wins; a secret,
+    card or Aadhaar number found by its shape wins over the same span found by its label).
+    `labelled`: also by label, which only a reply asks for (Q69)."""
     found: list[Found] = []
     for kind, pattern in _SECRETS:
         found += [Found(kind, m.start(), m.end(), "[secret removed]") for m in pattern.finditer(text)]
@@ -159,17 +223,19 @@ def find(text: str) -> list[Found]:
     for match in _AADHAAR_CANDIDATE.finditer(text):
         if _is_aadhaar(text, match):
             found.append(Found("aadhaar_number", match.start(), match.end(), _last_four(match.group(0))))
+    if labelled:
+        found += _labelled(text)
     kept: list[Found] = []
-    for item in sorted(found, key=lambda f: (f.start, -(f.end - f.start))):
+    for item in sorted(found, key=lambda f: (f.start, -(f.end - f.start), f.kind.startswith("labelled."))):
         if not kept or item.start >= kept[-1].end:
             kept.append(item)
     return kept
 
 
-def mask(text: str) -> tuple[str, list[str]]:
+def mask(text: str, labelled: bool = False) -> tuple[str, list[str]]:
     """(the text with every find replaced, the kinds found in order). Unchanged text and an empty
-    list when there is nothing."""
-    found = find(text)
+    list when there is nothing. `labelled` as for `find`."""
+    found = find(text, labelled)
     for item in reversed(found):
         text = text[:item.start] + item.replacement + text[item.end:]
     return text, [item.kind for item in found]

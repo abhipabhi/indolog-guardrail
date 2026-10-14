@@ -147,6 +147,45 @@ def readable_view(text: str) -> str:
     return _SPACED_LETTERS.sub(lambda m: m.group(0).replace(" ", ""), text)
 
 
+_ESCAPE = re.compile(r"&(?:#\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});|(?:%[0-9A-Fa-f]{2})+")
+
+
+def traced_view(text: str) -> tuple[str, tuple[tuple[int, int], ...]]:
+    """The text with its character-level disguises undone, and for each character of the result the
+    span of `text` it came from, so that a caller can change the text it was given (leakage.py masks
+    a number found here). Hidden and control characters are dropped; HTML and URL escapes,
+    compatibility forms (full-width digits and letters) and look-alike letters become what they
+    stand for, and accents on Latin letters are dropped, as in `unmasked_view`. Digits, spaces and
+    punctuation are otherwise left as they are."""
+    out: list[str] = []
+    spans: list[tuple[int, int]] = []
+
+    def put(characters: str, start: int, end: int) -> None:
+        for character in unicodedata.normalize("NFKC", characters).translate(_CONFUSABLES):
+            for part in unicodedata.normalize("NFD", character):
+                if unicodedata.category(part) == "Mn" and out and "a" <= out[-1].lower() <= "z":
+                    continue                    # an accent on a Latin letter
+                out.append(part)
+                spans.append((start, end))
+
+    index = 0
+    while index < len(text):
+        escape = _ESCAPE.match(text, index)
+        if escape:
+            written = escape.group()
+            decoded = html.unescape(written) if written.startswith("&") else unquote(written)
+            if decoded != written:
+                put(_CONTROL.sub("", strip_hidden(decoded)), index, escape.end())
+                index = escape.end()
+                continue
+        character = text[index]
+        if not (INVISIBLE.match(character) or SMUGGLING.match(character) or character == SOFT_HYPHEN
+                or _CONTROL.match(character)):
+            put(character, index, index + 1)
+        index += 1
+    return "".join(out), tuple(spans)
+
+
 # --- OCR misreadings -------------------------------------------------------------------------------
 
 # Words worth recovering when OCR has mangled them. Four letters or more, so that a correction
@@ -267,6 +306,29 @@ def decoded_views(text: str) -> tuple[Decoded, ...]:
 def decoded_segments(text: str) -> list[str]:
     """Base64 blocks that decode to readable text. Kept for callers that only want those."""
     return [d.text for d in decoded_views(text) if d.kind == "base64"]
+
+
+def encoded_runs(text: str) -> list[tuple[int, int, str]]:
+    """(start, end, decoded) for each base64 token and hex run in `text` that decodes to readable
+    text. Unlike decoded_views it says where each one is, so that a caller can act on the text it
+    came from (leakage.py). A base64 block wrapped over several lines is read line by line here."""
+    runs = []
+    for token in _B64_TOKEN.finditer(text):
+        try:
+            decoded = base64.b64decode(token.group() + "=" * (-len(token.group()) % 4), validate=True).decode("utf-8")
+        except (binascii.Error, ValueError):
+            continue
+        if _readable(decoded):
+            runs.append((token.start(), token.end(), decoded))
+    for run in _HEX_RUN.finditer(text):
+        digits = re.sub(r"[ :]", "", run.group())
+        try:
+            decoded = bytes.fromhex(digits).decode("utf-8") if len(digits) % 2 == 0 else ""
+        except ValueError:
+            continue
+        if _readable(decoded):
+            runs.append((run.start(), run.end(), decoded))
+    return runs
 
 
 _BASE64_RUN = re.compile(r"(?:[A-Za-z0-9+/]{40,}={0,2}\s*)+")

@@ -274,6 +274,10 @@ product's own prompt are not mixed up with the others.
 
 Every email is on its own. Nothing from an earlier email is sent with the next one.
 
+In a reply, card, Aadhaar, bank account and IFSC numbers are shown with only their last four
+characters (`Account no: XXXXXXXXXXXX6666`), and secrets such as keys are removed. That is the
+guardrail's check on the reply, and it is meant: chat does not repeat those numbers in full.
+
 ### Your results
 
 Every run is saved as one row in a spreadsheet file inside the chatbot's own folder:
@@ -540,13 +544,14 @@ shadow or switches it off is refused.
 | output | `grounding` | off | A value the source text does not state: removed, review |
 | output | `high_impact_fields` | enforce | A bank or consignee field with a value always goes to a person |
 | answer | `no_code`, `no_leak`, `length` | enforce | No code, no repeated instructions, not too long |
-| answer | `leakage` | enforce | Secrets replaced, card and Aadhaar numbers masked to their last four digits |
+| answer | `leakage` | enforce | Secrets replaced, card and Aadhaar numbers masked to their last four digits, and so is any number given after an account, Aadhaar or IFSC label |
 | answer | `grounding`, `abstention` | off | A date, reference or amount the excerpts do not contain: withheld |
 
 In the **rollout policy** (`rules.rollout.json`, what the image starts with) every check is in
-shadow except five: the four marked **always**, and the output `schema` check. It is not
-watch-only: from the first request an instruction aimed at the model is stopped, and a document
-with an unread page or an extraction of the wrong shape goes to a person. Everything else is
+shadow except six: the four marked **always**, the output `schema` check and the reply's
+`leakage` check. It is not watch-only: from the first request an instruction aimed at the model is
+stopped, a document with an unread page or an extraction of the wrong shape goes to a person, and a
+chat reply is shown with secrets and card, Aadhaar, account and IFSC numbers masked. Everything else is
 recorded and changes nothing.
 
 The `schema` check is enforced there by choice, not by the code: a policy can put it back in
@@ -597,7 +602,7 @@ that check, whether the check is enforced or in shadow.
 
 ### How well it does, so far
 
-Measured on policy 15, on the input stage. Read every number with its label:
+Measured on policy 16, on the input stage. Read every number with its label:
 
 - **344 of 420** synthetic injection attacks stopped. The synthetic set is a **development set**:
   one author wrote its attacks and the rules that catch them, so this shows the rules do what
@@ -607,7 +612,7 @@ Measured on policy 15, on the input stage. Read every number with its label:
   across four public datasets.
 
 No threshold should be chosen from these numbers. Real mail has been read once, fourteen
-threads, and no injection rule of policy 15 fires on any of them; fourteen is not a rate. The
+threads, and no injection rule of policy 16 fires on any of them; fourteen is not a rate. The
 rollout policy gives the same four numbers, because the checks that produce them are enforced
 there too.
 

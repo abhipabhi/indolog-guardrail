@@ -1,5 +1,5 @@
 {
-  "version": "15-rollout",
+  "version": "16-rollout",
   "messages": {
     "refusal": "Sorry, I can't help with that. I can only answer questions about IndoLog shipments, quotes and freight.",
     "no_answer": "Sorry, I can't answer that."
@@ -1918,7 +1918,7 @@
     "modes": {
       "no_code": "shadow",
       "no_leak": "shadow",
-      "leakage": "shadow",
+      "leakage": "enforce",
       "grounding": "shadow",
       "abstention": "shadow",
       "length": "shadow"
@@ -1933,7 +1933,6 @@
     "review_by": {
       "no_code": "2026-11-04",
       "no_leak": "2026-11-04",
-      "leakage": "2026-11-04",
       "grounding": "2026-11-04",
       "abstention": "2026-11-04",
       "length": "2026-11-04"

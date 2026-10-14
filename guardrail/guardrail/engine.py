@@ -545,11 +545,12 @@ def _run_answer(request: AnswerRequest, rules: Rules) -> AnswerResponse:
             if name == "leakage":
                 # Secrets, card numbers and Aadhaar numbers are masked in the reply, which is then
                 # shown: this endpoint already hands back a reply it has changed (a shortened one).
+                # So is a number given after an account, Aadhaar or IFSC label, whatever it is (Q69).
                 # A planted canary token is different: the reply has repeated the model's
                 # instructions, and is replaced like any other leak of them.
                 canary = config.leakage.canary
                 leaked = canary.enabled and any(token in text for token in canary.tokens)
-                masked, kinds = leakage.mask(text)
+                masked, kinds = leakage.mask(text, labelled=True)
                 found = ([{"check": name, "action": "block", "rule": "leakage.canary"}] if leaked else []) + \
                         [{"check": name, "action": "review", "rule": f"leakage.{kind}"} for kind in dict.fromkeys(kinds)]
                 outcome = _outcome(name, "answer", "shadow" if shadowed else "enforce", found, started, False)

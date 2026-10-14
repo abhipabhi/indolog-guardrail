@@ -24,6 +24,10 @@ what the results mean, and what to do when something goes wrong.
 It runs on a Mac, and on Windows inside WSL (the Linux terminal that Windows provides). The guide
 has the one-time setup for each. On Windows, every command below is typed in the Ubuntu terminal.
 
+**Without Docker**, the chatbot's start script installs the guardrail beside it and starts it for
+you, with the same policy and the same results: on a Mac `./start.sh`, and on Windows `start.bat`,
+with no WSL. The guide's [Without Docker](chatbot/README.md#without-docker) section has the steps.
+
 ### The first time
 
 For someone who has Docker Desktop running, git and [uv](https://docs.astral.sh/uv/):

@@ -14,10 +14,15 @@
 #     key that is there for other work does not connect a model by surprise.
 #   * It is read as text, not run as a script: each value is taken exactly as written.
 #
-# The first run also installs the app, into .venv in this folder, with uv (https://docs.astral.sh/uv).
-# uv brings Python 3.11 with it when this machine has none, so there is no Python to install and
-# no virtual environment to make by hand. After an update that changes requirements.txt, the next
-# start brings .venv up to date.
+# The first run also installs the app, into .venv in this folder, with uv (https://docs.astral.sh/uv):
+# `uv sync` installs the chatbot and the guardrail beside it (../guardrail) at the versions in
+# uv.lock. uv brings Python 3.11 with it when this machine has none, so there is no Python to
+# install and no virtual environment to make by hand. After an update that changes uv.lock, the
+# next start brings .venv up to date.
+#
+# The guardrail: when one answers at GUARDRAIL_URL (http://localhost:8001 unless the settings file
+# says otherwise), for example the one Docker runs, that one is used. When none does, one is started
+# here from .venv, without Docker, and stopped again with the chatbot. On Windows, start.ps1 does the same.
 #
 # The app listens on localhost only.
 # No value from the settings file, and nothing you type at the prompt, is ever printed.
@@ -40,27 +45,26 @@ if [ -z "$UV" ]; then
         if [ -x "$candidate" ]; then UV=$candidate; break; fi
     done
 fi
-INSTALLED="$HERE/.venv/requirements.installed"      # a copy of what was installed, to tell when an update changes it
+INSTALLED="$HERE/.venv/uv.lock.installed"           # a copy of what was installed, to tell when an update changes it
 install_app() {
-    "$UV" pip install --python "$HERE/.venv/bin/python" -r "$HERE/requirements.txt" \
+    # --frozen: exactly what uv.lock says, never a newer version. uv makes .venv, or makes it again
+    # with Python 3.11 when it was made with another.
+    "$UV" sync --frozen --project "$HERE" \
         || stop "uv could not install the app; its own message is above. Check the internet connection and run ./start.sh again."
-    cp "$HERE/requirements.txt" "$INSTALLED"
+    cp "$HERE/uv.lock" "$INSTALLED"
 }
 if [ ! -x "$HERE/.venv/bin/streamlit" ]; then
     [ -n "$UV" ] || stop "the app is not installed yet, and uv, which installs it, was not found. Install uv with:  curl -LsSf https://astral.sh/uv/install.sh | sh   Then run ./start.sh again."
     echo "Installing the app into $HERE/.venv. This happens once and takes a minute or two, longer on a"
     echo "slow connection: it downloads about 80 packages (about 500 MB on disk), and Python 3.11 if"
     echo "this machine does not have it."
-    # --allow-existing: a .venv left by an earlier attempt, or made with another Python, is made again in place.
-    "$UV" venv --quiet --allow-existing --python 3.11 "$HERE/.venv" \
-        || stop "uv could not make $HERE/.venv; its own message is above. Check the internet connection and run ./start.sh again."
     install_app
     echo "Installed."
     echo
-elif [ -n "$UV" ] && ! cmp -s "$HERE/requirements.txt" "$INSTALLED"; then
-    # An update changed requirements.txt, or .venv was made before this script kept a copy (then
-    # there is usually nothing to do, and uv says so in a moment).
-    [ ! -e "$INSTALLED" ] || echo "requirements.txt has changed since the app was installed. Bringing it up to date."
+elif [ -n "$UV" ] && ! cmp -s "$HERE/uv.lock" "$INSTALLED"; then
+    # An update changed uv.lock, or .venv was made before this script installed with uv sync (then
+    # the guardrail is added to it, and anything uv.lock does not hold is taken out).
+    [ ! -e "$INSTALLED" ] || echo "uv.lock has changed since the app was installed. Bringing it up to date."
     install_app
 fi
 # Without uv, a .venv that already holds the app (made by hand with pip) is started as it is.
@@ -175,6 +179,53 @@ case "$CHATBOT_LOG_DIR" in
 esac
 export CHATBOT_LOG_DIR
 
+# --- the guardrail: the one that answers at GUARDRAIL_URL, or one started here ---------------------
+GUARDRAIL=${GUARDRAIL_URL:-http://localhost:8001}
+GUARDRAIL=${GUARDRAIL%/}
+answers() {
+    "$HERE/.venv/bin/python" -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1] + "/health", timeout=2)' \
+        "$GUARDRAIL" >/dev/null 2>&1
+}
+GUARDRAIL_PID=""
+if answers; then
+    echo "Using the guardrail at $GUARDRAIL."
+else
+    case "$GUARDRAIL" in                                    # only a guardrail on this machine is started here
+        http://localhost:*|http://127.0.0.1:*) PORT=${GUARDRAIL##*:} ;;
+        *) PORT="" ;;
+    esac
+    case "$PORT" in
+        ''|*[!0-9]*) PORT="" ;;
+    esac
+    if [ -n "$PORT" ] && "$HERE/.venv/bin/python" -c 'import guardrail' 2>/dev/null; then
+        RULES=$(cd "$HERE/../guardrail" && pwd -P)/rules.rollout.json
+        mkdir -p "$CHATBOT_LOG_DIR"
+        echo "No guardrail answers at $GUARDRAIL, so one is started here, without Docker: the rollout"
+        echo "policy, as the Docker image runs it, with no database and without the classifier, which"
+        echo "only observes in that policy. It stops when the chatbot stops. Its log: $CHATBOT_LOG_DIR/guardrail.log"
+        # A clean environment: the guardrail needs no key, so it is given none.
+        env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C.UTF-8}" GUARDRAIL_RULES="$RULES" \
+            "$HERE/.venv/bin/python" -m uvicorn guardrail.app:app --host 127.0.0.1 --port "$PORT" \
+            > "$CHATBOT_LOG_DIR/guardrail.log" 2>&1 &
+        GUARDRAIL_PID=$!
+        trap 'kill "$GUARDRAIL_PID" 2>/dev/null || true' EXIT
+        waited=0
+        until answers; do
+            kill -0 "$GUARDRAIL_PID" 2>/dev/null \
+                || stop "the guardrail stopped while starting. The end of $CHATBOT_LOG_DIR/guardrail.log says why."
+            [ "$waited" -lt 120 ] || stop "the guardrail did not answer within a minute. See $CHATBOT_LOG_DIR/guardrail.log."
+            sleep 0.5
+            waited=$((waited + 1))
+        done
+        echo "The guardrail is running at $GUARDRAIL."
+    elif [ -n "$PORT" ]; then
+        echo "No guardrail answers at $GUARDRAIL, and the guardrail is not installed in .venv here to start one."
+        echo "Start it with Docker (README.md); until then the chatbot says it cannot reach it."
+    else
+        echo "No guardrail answers at $GUARDRAIL. Until it does, the chatbot says it cannot reach it."
+    fi
+fi
+
 # --- start ------------------------------------------------------------------------------------------
 cd "$HERE"
 echo "Settings from $SETTINGS:${NAMES:- none set}"
@@ -182,4 +233,8 @@ echo "The screen names every provider a test email can reach, before anything is
 echo "Results are logged to $CHATBOT_LOG_DIR/chatbot-runs.csv"
 echo "Starting on http://localhost:8502, for this machine only. Stop it with Ctrl+C."
 # The address is given here so that nothing in the environment can widen it.
-exec .venv/bin/streamlit run app.py --server.address localhost
+if [ -n "$GUARDRAIL_PID" ]; then
+    .venv/bin/streamlit run app.py --server.address localhost    # not exec: the guardrail is stopped after it
+else
+    exec .venv/bin/streamlit run app.py --server.address localhost
+fi

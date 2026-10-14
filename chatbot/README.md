@@ -10,6 +10,81 @@ with the guardrail in Docker and Google Gemini as the model.
 
 This is a test tool. It is not part of the product.
 
+## Without Docker
+
+The guardrail can also run without Docker. `./start.sh` (on Windows, `start.bat`) installs it
+beside the chatbot and starts it for you whenever no guardrail is running, and stops it again with
+the chatbot. You then need only git, uv and your Gemini key: no Docker Desktop, no WSL on Windows,
+and about 1 GB of disk space instead of 10.
+
+It runs the same rollout policy as the Docker image, and gives the same results. Two things
+differ. It keeps no database, so its record of what it decided is the file `logs/guardrail.log`
+in the chatbot's folder. And it has no classifier, which in that policy only observes: its health
+page (http://localhost:8001/health) shows `"injection_classifier":"error: FileNotFoundError"`,
+and that is expected. When a guardrail is already running, from Docker for example, the script
+uses that one instead.
+
+**On a Mac**, install git and uv as under [On a Mac](#on-a-mac); Docker Desktop is not needed.
+Then, in the Terminal app:
+
+```bash
+cd ~
+```
+
+```bash
+git clone https://github.com/abhipabhi/indolog-guardrail.git
+```
+
+```bash
+cd ~/indolog-guardrail/chatbot
+```
+
+```bash
+./start.sh
+```
+
+**On Windows**, without WSL:
+
+1. Install git from [git-scm.com](https://git-scm.com/download/win), with the choices it offers.
+2. Open PowerShell from the Start menu and install uv:
+
+   ```powershell
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
+
+3. Close PowerShell and open it again, so that it finds uv. Then:
+
+   ```powershell
+   cd ~
+   ```
+
+   ```powershell
+   git clone https://github.com/abhipabhi/indolog-guardrail.git
+   ```
+
+   ```powershell
+   cd ~\indolog-guardrail\chatbot
+   ```
+
+   ```powershell
+   .\start.bat
+   ```
+
+   Double-clicking `start.bat` in that folder does the same. Your settings file is
+   `.guardrail-chatbot.env` in your user folder (`C:\Users\<you>`).
+
+   This way has not yet been run on a Windows machine. If a step does not behave as written, tell
+   the person who asked you to test.
+
+The first time, the script installs the app and the guardrail (a minute or two) and asks for your
+Gemini key, as in [Step 3](#step-3-run-the-chatbot). Then open http://localhost:8502 and go on
+with [Step 4](#step-4-check-it-works). Leave the window open while you test: Ctrl+C stops the
+chatbot, and the guardrail with it.
+
+Every time after that, the last command alone starts it again. After an update (`git pull` in
+`~/indolog-guardrail`), the same command brings it up to date: the guardrail reads its rules
+afresh at every start, so there is nothing to rebuild.
+
 ## Before you start
 
 It runs on a Mac, and on Windows inside WSL, which is the Linux terminal that Windows provides.
@@ -493,7 +568,7 @@ nothing around it.
 under [Before you start](#before-you-start), then run `./start.sh` again. The same terminal will
 do: the script looks where uv's installer puts it.
 
-**`./start.sh` says "uv could not install the app" or "uv could not make" the `.venv` folder.**
+**`./start.sh` (or `start.bat`) says "uv could not install the app".**
 uv's own message is just above that line. It is nearly always the internet connection: run
 `./start.sh` again, and it carries on from what it already has.
 
@@ -508,6 +583,14 @@ the Desktop, Documents and Downloads folders, and is waiting for you to allow ac
 dialog, or see System Settings, Privacy & Security, Files and Folders). The simplest fix is to
 keep the clone in your home folder, as in Step 1.
 
+**Without Docker, the script says "the guardrail stopped while starting".** Another program
+already uses port 8001; the end of `logs/guardrail.log` (on Windows, `logs\guardrail.errors.log`)
+names the problem. Stop that program, or start Docker's guardrail and let the script use it.
+
+**Docker says port 8001 "is already allocated".** A guardrail started by the script without
+Docker is still running. Stop the chatbot with Ctrl+C, which stops that guardrail too, and run the
+`docker compose` command again.
+
 **You want to change or remove your key.** Edit `~/.guardrail-chatbot.env`, or delete it and run
 `./start.sh` again. `.env.example` in this folder lists every setting.
 
@@ -520,8 +603,9 @@ keep the clone in your home folder, as in Step 1.
   The Windows side of it (installing WSL, Docker Desktop's connection to Ubuntu, opening the
   pages from Windows) has not yet been run on a Windows machine. If a step there does not behave
   as written, tell the person who asked you to test.
-- **Windows without WSL** (PowerShell or Command Prompt alone) is not supported: the start script
-  cannot run there.
+- **Windows without WSL** (PowerShell or Command Prompt alone): only [without Docker](#without-docker),
+  with `start.bat`. It is written for Windows PowerShell 5.1, which every Windows 10 and 11 has,
+  and has not yet been run on a Windows machine.
 - **Linux** itself: as for WSL, from step 3 of [On Windows](#on-windows), with Docker installed
   your own way.
 

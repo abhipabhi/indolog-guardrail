@@ -529,7 +529,7 @@ shadow or switches it off is refused.
 | input | `size_limit` | enforce | A question over its cap is stopped; mail over a cap goes to a person |
 | input | `ingest` | enforce, **always** | A document the converter marked as having a page it could not read goes to a person |
 | input | `hidden_characters` | enforce, **always** | Invisible characters, and words mixing alphabets. A zero-width space that only marks where a line may break, as PDF exports leave, is let through and counted |
-| input | `injection_rules` | enforce, **always** | Twenty-four rules for instructions aimed at the model, matched on the text with disguises undone |
+| input | `injection_rules` | enforce, **always** | Twenty-five rules for instructions aimed at the model, in the question as well as the email and attachments, matched on the text with disguises undone |
 | input | `injection_classifier` | shadow, after the response; review by 4 Nov 2026 | A learned detector, run on the question only |
 | input | `encoded_content` | enforce, **always** | A long encoded block |
 | input | `scope` | enforce | A clear out-of-scope question (code, a poem) is refused |
@@ -570,7 +570,7 @@ a policy file alike. A policy that breaks one is refused with the reason (the ad
   `review_overdue`. Being late changes nothing else: the check stays in shadow until a new
   policy version moves it to enforce, gives it a later date, or switches it off.
 
-- **A policy cannot empty a check.** It must carry every rule of the bundled rule set (24 today)
+- **A policy cannot empty a check.** It must carry every rule of the bundled rule set (25 today)
   in `injection_rules`, and a schema for each of the backend's eight intents. An empty rule list,
   a missing rule or a missing schema is refused, and the refusal names what is missing.
 
@@ -597,17 +597,17 @@ that check, whether the check is enforced or in shadow.
 
 ### How well it does, so far
 
-Measured on policy 14, on the input stage. Read every number with its label:
+Measured on policy 15, on the input stage. Read every number with its label:
 
-- **339 of 415** synthetic injection attacks stopped. The synthetic set is a **development set**:
+- **344 of 420** synthetic injection attacks stopped. The synthetic set is a **development set**:
   one author wrote its attacks and the rules that catch them, so this shows the rules do what
   they were written to do, and no more.
-- **0 of 851** synthetic benign emails and questions flagged.
+- **0 of 869** synthetic benign emails and questions flagged.
 - **338 of 709** public attack prompts flagged, and **44 of 888** public benign prompts flagged,
   across four public datasets.
 
 No threshold should be chosen from these numbers. Real mail has been read once, fourteen
-threads, and no injection rule of policy 14 fires on any of them; fourteen is not a rate. The
+threads, and no injection rule of policy 15 fires on any of them; fourteen is not a rate. The
 rollout policy gives the same four numbers, because the checks that produce them are enforced
 there too.
 

@@ -56,7 +56,7 @@ REQUIRED_INJECTION_RULES: tuple[str, ...] = (
     "ai_override", "prompt_extraction", "role_hijack", "role_assignment", "ai_addressed", "chat_template_tokens",
     "tool_call_syntax", "field_manipulation", "instruction_override", "identity_or_limits",
     "data_exfiltration", "shipment_manipulation", "shipment_manipulation_hindi", "payment_detail_change",
-    "payment_redirection", "ai_internals", "override_hindi", "override_hinglish", "override_european",
+    "payment_redirection", "payment_change_request", "ai_internals", "override_hindi", "override_hinglish", "override_european",
     "secret_request", "authority_claim", "access_bypass", "indirection", "claimed_agreement",
 )
 REQUIRED_INTENT_SCHEMAS: tuple[str, ...] = (

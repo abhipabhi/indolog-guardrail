@@ -180,69 +180,104 @@ function Test-Guardrail {
 }
 
 $started = $null
-if (Test-Guardrail) {
-    Write-Host "Using the guardrail at $Guardrail."
-} else {
-    $port = $null
-    if ($Guardrail -match '^http://(localhost|127\.0\.0\.1):(\d+)$') { $port = $Matches[2] }
-    $installed = $false
-    if ($port -and (Test-Path -LiteralPath $Python)) {
-        # In Windows PowerShell, a native program's redirected error output stops a script that
-        # stops on errors; the failed import is an answer here, not an error.
-        $ErrorActionPreference = 'Continue'
-        & $Python -c 'import guardrail' 2>$null
-        $installed = ($LASTEXITCODE -eq 0)
-        $ErrorActionPreference = 'Stop'
-    }
-    if ($installed) {
-        $rules = Join-Path (Resolve-Path -LiteralPath (Join-Path $Here '..\guardrail')).Path 'rules.rollout.json'
-        New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
-        $log = Join-Path $LogDir 'guardrail.log'
-        $errors = Join-Path $LogDir 'guardrail.errors.log'
-        Write-Host "No guardrail answers at $Guardrail, so one is started here, without Docker: the rollout"
-        Write-Host 'policy, as the Docker image runs it, with no database and without the classifier, which'
-        Write-Host "only observes in that policy. It stops when the chatbot stops. Its log: $log"
-        $env:GUARDRAIL_RULES = $rules
-        $started = Start-Process -FilePath $Python -WorkingDirectory $Here -NoNewWindow -PassThru `
-            -ArgumentList @('-m', 'uvicorn', 'guardrail.app:app', '--host', '127.0.0.1', '--port', $port) `
-            -RedirectStandardOutput $log -RedirectStandardError $errors
-        Remove-Item -LiteralPath 'Env:GUARDRAIL_RULES' -ErrorAction SilentlyContinue
-        $waited = 0
-        while (-not (Test-Guardrail)) {
-            if ($started.HasExited) {
-                Stop-Here "the guardrail stopped while starting. The end of $errors says why."
-            }
-            if ($waited -ge 120) {
-                Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue
-                Stop-Here "the guardrail did not answer within a minute. See $errors."
-            }
-            Start-Sleep -Milliseconds 500
-            $waited++
-        }
-        Write-Host "The guardrail is running at $Guardrail."
-    } elseif ($port) {
-        Write-Host "No guardrail answers at $Guardrail, and the guardrail is not installed in .venv here to start one."
-        Write-Host 'Start it with Docker (README.md); until then the chatbot says it cannot reach it.'
-    } else {
-        Write-Host "No guardrail answers at $Guardrail. Until it does, the chatbot says it cannot reach it."
-    }
-}
-
-# --- start ------------------------------------------------------------------------------------------
-foreach ($name in $values.Keys) {
-    Set-Item -LiteralPath "Env:$name" -Value $values[$name]
-}
-if ($named.Count -eq 0) { $named = @('none set') }
-Write-Host "Settings from ${Settings}: $($named -join ' ')"
-Write-Host 'The screen names every provider a test email can reach, before anything is sent.'
-Write-Host "Results are logged to $(Join-Path $LogDir 'chatbot-runs.csv')"
-Write-Host 'Starting on http://localhost:8502, for this machine only. Stop it with Ctrl+C.'
-Push-Location -LiteralPath $Here
+# Whatever ends this script, Ctrl+C while it waits for the guardrail included, the guardrail it
+# started goes with it.
 try {
-    # The address is given here so that nothing in the environment can widen it.
-    & $Streamlit run app.py --server.address localhost
+    if (Test-Guardrail) {
+        Write-Host "Using the guardrail at $Guardrail."
+    } else {
+        $port = $null
+        if ($Guardrail -match '^http://(localhost|127\.0\.0\.1):(\d+)$') { $port = $Matches[2] }
+        $installed = $false
+        if ($port -and (Test-Path -LiteralPath $Python)) {
+            # In Windows PowerShell, a native program's redirected error output stops a script that
+            # stops on errors; the failed import is an answer here, not an error.
+            $ErrorActionPreference = 'Continue'
+            & $Python -c 'import guardrail' 2>$null
+            $installed = ($LASTEXITCODE -eq 0)
+            $ErrorActionPreference = 'Stop'
+        }
+        if ($installed) {
+            $rules = Join-Path (Resolve-Path -LiteralPath (Join-Path $Here '..\guardrail')).Path 'rules.rollout.json'
+            New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+            $log = Join-Path $LogDir 'guardrail.log'
+            $errors = Join-Path $LogDir 'guardrail.errors.log'
+            # A program that already listens on the port, and does not answer as a guardrail, keeps the one
+            # started here from opening it ([Errno 10048]). Say which program before trying.
+            $holder = $null
+            try {
+                $holder = Get-NetTCPConnection -LocalPort ([int]$port) -State Listen -ErrorAction Stop | Select-Object -First 1
+            } catch {
+                $holder = $null                         # nothing listens, or this Windows cannot say
+            }
+            if (-not $holder) {
+                # Opening the port is the test that does not depend on the other program answering.
+                $ErrorActionPreference = 'Continue'
+                & $Python -c 'import socket, sys; socket.socket().bind(("127.0.0.1", int(sys.argv[1])))' $port 2>$null
+                $taken = ($LASTEXITCODE -ne 0)
+                $ErrorActionPreference = 'Stop'
+                if ($taken) {
+                    Stop-Here ("port $port cannot be opened: another program has it, or Windows keeps it for itself. " +
+                               "Give the guardrail another port: add the line  GUARDRAIL_URL=http://localhost:18001  " +
+                               "to $Settings. Then run start.bat again.")
+                }
+            }
+            if ($holder) {
+                $program = (Get-Process -Id $holder.OwningProcess -ErrorAction SilentlyContinue).ProcessName
+                Stop-Here ("port $port is already in use by another program ($program, process $($holder.OwningProcess)), which " +
+                           "does not answer as a guardrail, so none can be started here. If it is a guardrail left from an " +
+                           "earlier start (python), stop it with:  Stop-Process -Id $($holder.OwningProcess)   If it is the Docker " +
+                           "guardrail, wait until it is ready. Otherwise give the guardrail another port: add the line  " +
+                           "GUARDRAIL_URL=http://localhost:18001  to $Settings. Then run start.bat again.")
+            }
+            Write-Host "No guardrail answers at $Guardrail, so one is started here, without Docker: the rollout"
+            Write-Host 'policy, as the Docker image runs it, with no database and without the classifier, which'
+            Write-Host "only observes in that policy. It stops when the chatbot stops. Its log: $log"
+            $env:GUARDRAIL_RULES = $rules
+            $started = Start-Process -FilePath $Python -WorkingDirectory $Here -NoNewWindow -PassThru `
+                -ArgumentList @('-m', 'uvicorn', 'guardrail.app:app', '--host', '127.0.0.1', '--port', $port) `
+                -RedirectStandardOutput $log -RedirectStandardError $errors
+            Remove-Item -LiteralPath 'Env:GUARDRAIL_RULES' -ErrorAction SilentlyContinue
+            $waited = 0
+            while (-not (Test-Guardrail)) {
+                if ($started.HasExited) {
+                    [Console]::Error.WriteLine("The end of ${errors}:")
+                    Get-Content -LiteralPath $errors -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { [Console]::Error.WriteLine("    $_") }
+                    Stop-Here 'the guardrail stopped while starting; the lines above say why.'
+                }
+                if ($waited -ge 120) {
+                    Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue
+                    Stop-Here "the guardrail did not answer within a minute. See $errors."
+                }
+                Start-Sleep -Milliseconds 500
+                $waited++
+            }
+            Write-Host "The guardrail is running at $Guardrail."
+        } elseif ($port) {
+            Write-Host "No guardrail answers at $Guardrail, and the guardrail is not installed in .venv here to start one."
+            Write-Host 'Start it with Docker (README.md); until then the chatbot says it cannot reach it.'
+        } else {
+            Write-Host "No guardrail answers at $Guardrail. Until it does, the chatbot says it cannot reach it."
+        }
+    }
+
+    # --- start ------------------------------------------------------------------------------------------
+    foreach ($name in $values.Keys) {
+        Set-Item -LiteralPath "Env:$name" -Value $values[$name]
+    }
+    if ($named.Count -eq 0) { $named = @('none set') }
+    Write-Host "Settings from ${Settings}: $($named -join ' ')"
+    Write-Host 'The screen names every provider a test email can reach, before anything is sent.'
+    Write-Host "Results are logged to $(Join-Path $LogDir 'chatbot-runs.csv')"
+    Write-Host 'Starting on http://localhost:8502, for this machine only. Stop it with Ctrl+C.'
+    Push-Location -LiteralPath $Here
+    try {
+        # The address is given here so that nothing in the environment can widen it.
+        & $Streamlit run app.py --server.address localhost
+    } finally {
+        Pop-Location
+    }
 } finally {
-    Pop-Location
     if ($started -and -not $started.HasExited) {
         Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue
     }

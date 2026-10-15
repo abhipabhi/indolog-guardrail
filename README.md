@@ -366,9 +366,20 @@ http://localhost:8001/health, shows the new `"rules_version"`.
 chatbot cannot reach the guardrail. Stop the chatbot with Ctrl+C and start it again: the script
 starts the guardrail when none is running.
 
-**The script says "the guardrail stopped while starting".** Another program already uses port
-8001. The end of `logs/guardrail.log` (on Windows, `logs\guardrail.errors.log`) names the problem.
-Stop that program, and start again.
+**The script says port 8001 "is already in use by another program", or "the guardrail stopped while
+starting" with `[Errno 10048]` or "address already in use" above it.** Another program has port
+8001. The script names it. If it is `python`, it is a guardrail left from an earlier start: stop it
+(on Windows, `Stop-Process -Id` and the process number the script shows) and start again. If it is
+the Docker guardrail, wait until it is ready. Otherwise give the guardrail another port: add this
+line to `.guardrail-chatbot.env` in your home folder, and start again.
+
+```
+GUARDRAIL_URL=http://localhost:18001
+```
+
+**The script says "the guardrail stopped while starting" with something else above it.** The lines it
+shows are the end of the guardrail's log (`logs/guardrail.log`, on Windows
+`logs\guardrail.errors.log`). Send them to the person who asked you to test; they hold no email text.
 
 **"the model answered MODEL NOT FOUND".** Google no longer offers the model the tool asks for.
 The screen tells you which setting to change: add this line to `.guardrail-chatbot.env` in your

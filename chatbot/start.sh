@@ -200,6 +200,14 @@ else
     if [ -n "$PORT" ] && "$HERE/.venv/bin/python" -c 'import guardrail' 2>/dev/null; then
         RULES=$(cd "$HERE/../guardrail" && pwd -P)/rules.rollout.json
         mkdir -p "$CHATBOT_LOG_DIR"
+        # A program that already listens on the port, and does not answer as a guardrail, keeps the one
+        # started here from opening it. Say which program before trying.
+        # Opening the port is the test that does not depend on the other program answering.
+        if ! "$HERE/.venv/bin/python" -c 'import socket, sys; socket.socket().bind(("127.0.0.1", int(sys.argv[1])))' \
+                "$PORT" 2>/dev/null; then
+            program=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR == 2 {print $1 ", process " $2}')
+            stop "port $PORT is already in use by another program${program:+ ($program)}, which does not answer as a guardrail, so none can be started here. If it is a guardrail left from an earlier start, stop that program; if it is the Docker guardrail, wait until it is ready. Otherwise give the guardrail another port: add the line  GUARDRAIL_URL=http://localhost:18001  to $SETTINGS. Then run ./start.sh again."
+        fi
         echo "No guardrail answers at $GUARDRAIL, so one is started here, without Docker: the rollout"
         echo "policy, as the Docker image runs it, with no database and without the classifier, which"
         echo "only observes in that policy. It stops when the chatbot stops. Its log: $CHATBOT_LOG_DIR/guardrail.log"
@@ -211,8 +219,11 @@ else
         trap 'kill "$GUARDRAIL_PID" 2>/dev/null || true' EXIT
         waited=0
         until answers; do
-            kill -0 "$GUARDRAIL_PID" 2>/dev/null \
-                || stop "the guardrail stopped while starting. The end of $CHATBOT_LOG_DIR/guardrail.log says why."
+            if ! kill -0 "$GUARDRAIL_PID" 2>/dev/null; then
+                echo "The end of $CHATBOT_LOG_DIR/guardrail.log:" >&2
+                tail -n 15 "$CHATBOT_LOG_DIR/guardrail.log" | sed 's/^/    /' >&2
+                stop "the guardrail stopped while starting; the lines above say why."
+            fi
             [ "$waited" -lt 120 ] || stop "the guardrail did not answer within a minute. See $CHATBOT_LOG_DIR/guardrail.log."
             sleep 0.5
             waited=$((waited + 1))

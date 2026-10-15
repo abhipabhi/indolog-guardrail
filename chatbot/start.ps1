@@ -169,10 +169,15 @@ $values['CHATBOT_LOG_DIR'] = $LogDir
 $Guardrail = $values['GUARDRAIL_URL']
 if (-not $Guardrail) { $Guardrail = 'http://localhost:8001' }
 $Guardrail = $Guardrail.TrimEnd('/')
+# Windows tries "localhost" over IPv6 first and takes about two seconds to give up on it before it
+# tries IPv4, where the guardrail listens (127.0.0.1, in Docker as here). A browser falls back at
+# once; a short check from here never got there, and the chatbot would wait those two seconds on
+# every call. So both are given the IPv4 address.
+$Direct = $Guardrail -replace '^http://localhost(?=[:/]|$)', 'http://127.0.0.1'
 
 function Test-Guardrail {
     try {
-        $null = Invoke-WebRequest -Uri "$Guardrail/health" -UseBasicParsing -TimeoutSec 2
+        $null = Invoke-WebRequest -Uri "$Direct/health" -UseBasicParsing -TimeoutSec 5
         return $true
     } catch {
         return $false
@@ -265,6 +270,7 @@ try {
     foreach ($name in $values.Keys) {
         Set-Item -LiteralPath "Env:$name" -Value $values[$name]
     }
+    $env:GUARDRAIL_URL = $Direct
     if ($named.Count -eq 0) { $named = @('none set') }
     Write-Host "Settings from ${Settings}: $($named -join ' ')"
     Write-Host 'The screen names every provider a test email can reach, before anything is sent.'

@@ -208,32 +208,22 @@ try {
             $log = Join-Path $LogDir 'guardrail.log'
             $errors = Join-Path $LogDir 'guardrail.errors.log'
             # A program that already listens on the port, and does not answer as a guardrail, keeps the one
-            # started here from opening it ([Errno 10048]). Say which program before trying.
+            # started here from opening it ([Errno 10048]). Say which program before trying. Windows says
+            # who listens; a port it keeps for itself shows up below, in the guardrail's own error.
+            $otherPort = if ($port -eq '18001') { '28001' } else { '18001' }
             $holder = $null
             try {
                 $holder = Get-NetTCPConnection -LocalPort ([int]$port) -State Listen -ErrorAction Stop | Select-Object -First 1
             } catch {
                 $holder = $null                         # nothing listens, or this Windows cannot say
             }
-            if (-not $holder) {
-                # Opening the port is the test that does not depend on the other program answering.
-                $ErrorActionPreference = 'Continue'
-                & $Python -c 'import socket, sys; socket.socket().bind(("127.0.0.1", int(sys.argv[1])))' $port 2>$null
-                $taken = ($LASTEXITCODE -ne 0)
-                $ErrorActionPreference = 'Stop'
-                if ($taken) {
-                    Stop-Here ("port $port cannot be opened: another program has it, or Windows keeps it for itself. " +
-                               "Give the guardrail another port: add the line  GUARDRAIL_URL=http://localhost:18001  " +
-                               "to $Settings. Then run start.bat again.")
-                }
-            }
             if ($holder) {
                 $program = (Get-Process -Id $holder.OwningProcess -ErrorAction SilentlyContinue).ProcessName
                 Stop-Here ("port $port is already in use by another program ($program, process $($holder.OwningProcess)), which " +
                            "does not answer as a guardrail, so none can be started here. If it is a guardrail left from an " +
                            "earlier start (python), stop it with:  Stop-Process -Id $($holder.OwningProcess)   If it is the Docker " +
-                           "guardrail, wait until it is ready. Otherwise give the guardrail another port: add the line  " +
-                           "GUARDRAIL_URL=http://localhost:18001  to $Settings. Then run start.bat again.")
+                           "guardrail, wait until it is ready. Otherwise give the guardrail another port: in $Settings, " +
+                           "have the one line  GUARDRAIL_URL=http://127.0.0.1:$otherPort  and run start.bat again.")
             }
             Write-Host "No guardrail answers at $Guardrail, so one is started here, without Docker: the rollout"
             Write-Host 'policy, as the Docker image runs it, with no database and without the classifier, which'
@@ -247,7 +237,12 @@ try {
             while (-not (Test-Guardrail)) {
                 if ($started.HasExited) {
                     [Console]::Error.WriteLine("The end of ${errors}:")
-                    Get-Content -LiteralPath $errors -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { [Console]::Error.WriteLine("    $_") }
+                    $tail = @(Get-Content -LiteralPath $errors -Tail 15 -ErrorAction SilentlyContinue)
+                    $tail | ForEach-Object { [Console]::Error.WriteLine("    $_") }
+                    if (($tail -join ' ') -match '10048|10013|address already in use|forbidden by its access permissions') {
+                        Stop-Here ("port $port cannot be used: another program has it, or Windows keeps it for itself. " +
+                                   "In $Settings, have the one line  GUARDRAIL_URL=http://127.0.0.1:$otherPort  and run start.bat again.")
+                    }
                     Stop-Here 'the guardrail stopped while starting; the lines above say why.'
                 }
                 if ($waited -ge 120) {

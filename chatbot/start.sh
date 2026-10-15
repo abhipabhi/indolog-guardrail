@@ -189,6 +189,19 @@ answers() {
 GUARDRAIL_PID=""
 if answers; then
     echo "Using the guardrail at $GUARDRAIL."
+    # One left running from before, Docker's above all, keeps the policy it was given, whatever this
+    # copy now holds. Say so when the two differ: results from an older policy are not this one's.
+    running=$("$HERE/.venv/bin/python" -c 'import json, sys, urllib.request; print(json.load(urllib.request.urlopen(sys.argv[1] + "/health", timeout=5)).get("rules_version") or "")' \
+        "$GUARDRAIL" 2>/dev/null || true)
+    this_copy=$("$HERE/.venv/bin/python" -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' \
+        "$HERE/../guardrail/rules.rollout.json" 2>/dev/null || true)
+    if [ -n "$running" ] && [ -n "$this_copy" ] && [ "$running" != "$this_copy" ]; then
+        echo
+        echo "NOTE: that guardrail runs policy $running, and this copy's policy is $this_copy. It is most likely"
+        echo "an older guardrail still running in Docker. To test this copy's, stop it and start again, and this"
+        echo "script starts its own:  cd $(cd "$HERE/../guardrail" && pwd -P) && docker compose down"
+        echo
+    fi
 else
     case "$GUARDRAIL" in                                    # only a guardrail on this machine is started here
         http://localhost:*|http://127.0.0.1:*) PORT=${GUARDRAIL##*:} ;;

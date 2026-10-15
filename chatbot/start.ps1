@@ -190,6 +190,25 @@ $started = $null
 try {
     if (Test-Guardrail) {
         Write-Host "Using the guardrail at $Guardrail."
+        # One left running from before, Docker's above all, keeps the policy it was given, whatever this
+        # copy now holds. Say so when the two differ: results from an older policy are not this one's.
+        $running = $null
+        try {
+            $running = (ConvertFrom-Json (Invoke-WebRequest -Uri "$Direct/health" -UseBasicParsing -TimeoutSec 5).Content).rules_version
+        } catch {
+            $running = $null
+        }
+        $versionLine = Select-String -LiteralPath (Join-Path $Here '..\guardrail\rules.rollout.json') -Pattern '"version":\s*"([^"]+)"' |
+            Select-Object -First 1
+        $thisCopy = $null
+        if ($versionLine) { $thisCopy = $versionLine.Matches[0].Groups[1].Value }
+        if ($running -and $thisCopy -and ($running -ne $thisCopy)) {
+            Write-Host ''
+            Write-Host "NOTE: that guardrail runs policy $running, and this copy's policy is $thisCopy. It is most likely" -ForegroundColor Yellow
+            Write-Host 'an older guardrail still running in Docker. To test this copy''s, stop it and start again, and this' -ForegroundColor Yellow
+            Write-Host "script starts its own: in $(Join-Path $Here '..\guardrail') run  docker compose down" -ForegroundColor Yellow
+            Write-Host ''
+        }
     } else {
         $port = $null
         if ($Guardrail -match '^http://(localhost|127\.0\.0\.1):(\d+)$') { $port = $Matches[2] }

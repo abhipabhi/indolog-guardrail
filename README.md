@@ -377,6 +377,15 @@ line to `.guardrail-chatbot.env` in your home folder, and start again.
 GUARDRAIL_URL=http://localhost:18001
 ```
 
+**The screen or http://localhost:8001/health shows an older policy (for example `12-rollout`), or
+the script prints "NOTE: that guardrail runs policy …".** A guardrail from an earlier setup, usually
+in Docker, is still running on port 8001, and the script uses a guardrail it finds running. Stop
+it, and start again: the script then starts its own, with this copy's policy.
+
+```bash
+cd ~/indolog-guardrail/guardrail && docker compose down
+```
+
 **The script says "the guardrail stopped while starting" with something else above it.** The lines it
 shows are the end of the guardrail's log (`logs/guardrail.log`, on Windows
 `logs\guardrail.errors.log`). Send them to the person who asked you to test; they hold no email text.

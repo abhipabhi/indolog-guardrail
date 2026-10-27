@@ -2,6 +2,7 @@
 # Starts the guardrail test chatbot on this machine, with its settings read from one private file.
 #
 #   ./start.sh
+#   ./start.sh --langfuse     the same, after asking for the keys of the testers' Langfuse project
 #
 # The settings file is $HOME/.guardrail-chatbot.env: NAME=value lines, as .env.example shows
 # (README.md).
@@ -24,6 +25,11 @@
 # says otherwise), for example the one Docker runs, that one is used. When none does, one is started
 # here from .venv, without Docker, and stopped again with the chatbot. On Windows, start.ps1 does the same.
 #
+# Langfuse: with LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in the settings file (./start.sh --langfuse
+# writes them there), every run is sent to the testers' Langfuse project in full: the email, the
+# question, the prompts and the replies (app/langfuse_trace.py). A guardrail started here sends its own
+# spans for each check to the same project, inside the run's trace. That project is not the platform's.
+#
 # The app listens on localhost only.
 # No value from the settings file, and nothing you type at the prompt, is ever printed.
 set -eu
@@ -33,8 +39,18 @@ SETTINGS="$HOME/.guardrail-chatbot.env"
 # Every setting the app reads. A name in the file that is not one of these is a typing mistake.
 KNOWN="CHATBOT_MODEL GOOGLE_API_KEY OPENAI_API_KEY GROQ_API_KEY OLLAMA_BASE_URL CHATBOT_LOG_DIR GUARDRAIL_URL
 GUARDRAIL_TIMEOUT_MS CHATBOT_CALL_MODEL_ON_REVIEW CHATBOT_MODEL_TIMEOUT_SECONDS CHATBOT_GEMINI_MODEL
-CHATBOT_OPENAI_MODEL CHATBOT_GROQ_MODEL CHATBOT_OLLAMA_MODEL CHATBOT_PASSWORD"
+CHATBOT_OPENAI_MODEL CHATBOT_GROQ_MODEL CHATBOT_OLLAMA_MODEL CHATBOT_PASSWORD
+LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL CHATBOT_TESTER"
+LANGFUSE_NAMES="LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_BASE_URL|CHATBOT_TESTER"
 stop() { echo "start.sh: $1" >&2; exit 1; }
+
+ASK_LANGFUSE=""
+for argument in "$@"; do
+    case "$argument" in
+        --langfuse) ASK_LANGFUSE=1 ;;
+        *) stop "the one option is --langfuse, which asks for the keys of the testers' Langfuse project. Start with  ./start.sh  or  ./start.sh --langfuse" ;;
+    esac
+done
 
 # --- the app itself: installed by uv into .venv here, the first time and after an update ------------
 # uv's installer puts it in ~/.local/bin, which a terminal opened before the install does not
@@ -56,7 +72,7 @@ install_app() {
 if [ ! -x "$HERE/.venv/bin/streamlit" ]; then
     [ -n "$UV" ] || stop "the app is not installed yet, and uv, which installs it, was not found. Install uv with:  curl -LsSf https://astral.sh/uv/install.sh | sh   Then run ./start.sh again."
     echo "Installing the app into $HERE/.venv. This happens once and takes a minute or two, longer on a"
-    echo "slow connection: it downloads about 80 packages (about 500 MB on disk), and Python 3.11 if"
+    echo "slow connection: it downloads about 90 packages (about 500 MB on disk), and Python 3.11 if"
     echo "this machine does not have it."
     install_app
     echo "Installed."
@@ -123,8 +139,66 @@ case "$MODE" in
     *) stop "$SETTINGS can be read or changed by others (it is $(echo "$MODE" | cut -c1-10)). It holds keys. Run:  chmod 600 \"$SETTINGS\"  and start again." ;;
 esac
 
+# --- ./start.sh --langfuse: the testers' Langfuse project, written into the settings file ---------
+trimmed() {
+    local value=$1
+    value=${value#"${value%%[![:space:]]*}"}
+    printf '%s' "${value%"${value##*[![:space:]]}"}"
+}
+if [ -n "$ASK_LANGFUSE" ]; then
+    echo "Connecting the testers' Langfuse project. Its owner gives you the two keys, and its address when it"
+    echo "is not in Langfuse Cloud's EU region. From now on every run is sent there in full: the email, the"
+    echo "question, the prompts and the replies. Fake or anonymised emails only, as always."
+    public="" secret="" address="" tester=""
+    IFS= read -r -p "Public key (pk-lf-...): " public || true
+    IFS= read -rs -p "Secret key (sk-lf-..., not shown): " secret || true
+    echo
+    IFS= read -r -p "Address (press Enter for https://cloud.langfuse.com): " address || true
+    IFS= read -r -p "Your name or initials, shown on your runs (press Enter to leave it out): " tester || true
+    public=$(trimmed "$public"); secret=$(trimmed "$secret"); address=$(trimmed "$address"); tester=$(trimmed "$tester")
+    case "$public" in
+        pk-lf-*[![:alnum:]-]*|pk-lf-) stop "that does not look like a public key. Nothing was written. Run ./start.sh --langfuse again." ;;
+        pk-lf-*) ;;
+        *) stop "a public key starts with pk-lf-. Nothing was written. Run ./start.sh --langfuse again." ;;
+    esac
+    case "$secret" in
+        sk-lf-*[![:alnum:]-]*|sk-lf-) stop "that does not look like a secret key. Nothing was written. Run ./start.sh --langfuse again." ;;
+        sk-lf-*) ;;
+        *) stop "a secret key starts with sk-lf-. Nothing was written. Run ./start.sh --langfuse again." ;;
+    esac
+    address=${address%/}
+    case "$address" in
+        '') ;;
+        https://*[![:alnum:]./:-]*|http://*[![:alnum:]./:-]*) stop "that address has something in it an address does not. Nothing was written." ;;
+        https://?*|http://localhost:*|http://127.0.0.1:*) ;;
+        *) stop "the address starts with https:// (for example https://us.cloud.langfuse.com). Nothing was written." ;;
+    esac
+    case "$tester" in
+        *[!\ [:alnum:]._-]*) stop "use letters, digits, spaces, dots and dashes in your name. Nothing was written." ;;
+    esac
+    # The other settings are kept as they are. Written by the shell itself into a new private file,
+    # which then takes the place of the old one, so the keys are never an argument of another program.
+    fresh=$(umask 077 && mktemp "$SETTINGS.XXXXXX") || stop "a new settings file could not be made beside $SETTINGS."
+    {
+        grep -v -E "^[[:space:]]*(export[[:space:]]+)?($LANGFUSE_NAMES)[[:space:]]*=|^# The testers' Langfuse project" "$SETTINGS" || true
+        printf '%s\n' "# The testers' Langfuse project. Written by start.sh --langfuse; run it again to change it."
+        printf 'LANGFUSE_PUBLIC_KEY=%s\n' "$public"
+        printf 'LANGFUSE_SECRET_KEY=%s\n' "$secret"
+        [ -z "$address" ] || printf 'LANGFUSE_BASE_URL=%s\n' "$address"
+        [ -z "$tester" ] || printf 'CHATBOT_TESTER=%s\n' "$tester"
+    } > "$fresh"
+    chmod 600 "$fresh"
+    mv -f "$fresh" "$SETTINGS"
+    secret=""
+    echo "Wrote the Langfuse keys into $SETTINGS. Every start from now on sends runs to Langfuse;"
+    echo "to stop that, take the two LANGFUSE_ lines out of that file."
+    echo
+fi
+
 # --- settings come from that file and nowhere else ------------------------------------------------
-for name in $(env | sed -n 's/^\(CHATBOT_[A-Za-z0-9_]*\)=.*/\1/p') $KNOWN; do
+# Langfuse's and OpenTelemetry's own variables too: a key or an endpoint in your shell for other
+# work (the platform's Langfuse, say) never takes a test run anywhere.
+for name in $(env | sed -E -n 's/^((CHATBOT|LANGFUSE|OTEL)_[A-Za-z0-9_]*)=.*/\1/p') $KNOWN; do
     unset "$name"
 done
 
@@ -179,6 +253,18 @@ case "$CHATBOT_LOG_DIR" in
 esac
 export CHATBOT_LOG_DIR
 
+# --- Langfuse: on when both keys are set ------------------------------------------------------------
+LANGFUSE_AUTH=""
+if [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ]; then
+    LANGFUSE_AT=${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+    LANGFUSE_AT=${LANGFUSE_AT%/}
+    # What the guardrail started below sends with its spans: Basic, public key:secret key. Made by the
+    # shell's own printf, so the keys are never an argument of another program; kept unexported.
+    LANGFUSE_AUTH=$(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64 | tr -d '\n')
+elif [ -n "${LANGFUSE_PUBLIC_KEY:-}${LANGFUSE_SECRET_KEY:-}" ]; then
+    echo "NOTE: only one of the two Langfuse keys is in $SETTINGS, so Langfuse is off. Run ./start.sh --langfuse to set both."
+fi
+
 # --- the guardrail: the one that answers at GUARDRAIL_URL, or one started here ---------------------
 GUARDRAIL=${GUARDRAIL_URL:-http://localhost:8001}
 GUARDRAIL=${GUARDRAIL%/}
@@ -189,6 +275,7 @@ answers() {
 GUARDRAIL_PID=""
 if answers; then
     echo "Using the guardrail at $GUARDRAIL."
+    [ -z "$LANGFUSE_AUTH" ] || echo "It was not started here, so its own spans are not in Langfuse. Each run's calls to it are."
     # One left running from before, Docker's above all, keeps the policy it was given, whatever this
     # copy now holds. Say so when the two differ: results from an older policy are not this one's.
     running=$("$HERE/.venv/bin/python" -c 'import json, sys, urllib.request; print(json.load(urllib.request.urlopen(sys.argv[1] + "/health", timeout=5)).get("rules_version") or "")' \
@@ -224,10 +311,21 @@ else
         echo "No guardrail answers at $GUARDRAIL, so one is started here, without Docker: the rollout"
         echo "policy, as the Docker image runs it, with no database and without the classifier, which"
         echo "only observes in that policy. It stops when the chatbot stops. Its log: $CHATBOT_LOG_DIR/guardrail.log"
-        # A clean environment: the guardrail needs no key, so it is given none.
-        env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C.UTF-8}" GUARDRAIL_RULES="$RULES" \
-            "$HERE/.venv/bin/python" -m uvicorn guardrail.app:app --host 127.0.0.1 --port "$PORT" \
-            > "$CHATBOT_LOG_DIR/guardrail.log" 2>&1 &
+        [ -z "$LANGFUSE_AUTH" ] || echo "It sends its own spans for each check to Langfuse, inside each run's trace."
+        # A clean environment: the guardrail needs no key, so it is given none. With Langfuse on, it is
+        # told where its spans go (guardrail/guardrail/tracing.py): exported here, in the shell itself,
+        # and never on a command line, where another program could read them.
+        (
+            # Nothing is passed on but what is exported below. Un-exported, not unset: the script's own
+            # values (PORT, say, which a shell may export for other work) are still here to use.
+            for name in $(compgen -e); do export -n "$name" 2>/dev/null || true; done
+            export PATH HOME LANG="${LANG:-C.UTF-8}" GUARDRAIL_RULES="$RULES"
+            if [ -n "$LANGFUSE_AUTH" ]; then
+                export OTEL_EXPORTER_OTLP_ENDPOINT="$LANGFUSE_AT/api/public/otel" OTEL_SERVICE_NAME=indolog-guardrail \
+                       OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20$LANGFUSE_AUTH"
+            fi
+            exec "$HERE/.venv/bin/python" -m uvicorn guardrail.app:app --host 127.0.0.1 --port "$PORT"
+        ) > "$CHATBOT_LOG_DIR/guardrail.log" 2>&1 &
         GUARDRAIL_PID=$!
         trap 'kill "$GUARDRAIL_PID" 2>/dev/null || true' EXIT
         waited=0
@@ -255,6 +353,7 @@ cd "$HERE"
 echo "Settings from $SETTINGS:${NAMES:- none set}"
 echo "The screen names every provider a test email can reach, before anything is sent."
 echo "Results are logged to $CHATBOT_LOG_DIR/chatbot-runs.csv"
+[ -z "$LANGFUSE_AUTH" ] || echo "Every run is also sent, in full, to the testers' Langfuse project at $LANGFUSE_AT."
 echo "Starting on http://localhost:8502, for this machine only. Stop it with Ctrl+C."
 # The address is given here so that nothing in the environment can widen it.
 if [ -n "$GUARDRAIL_PID" ]; then

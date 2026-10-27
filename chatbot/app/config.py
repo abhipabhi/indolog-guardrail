@@ -17,6 +17,7 @@ for _name in TRACING_VARIABLES:
     os.environ[_name] = "false"
 
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
+LANGFUSE_CLOUD = "https://cloud.langfuse.com"      # Langfuse Cloud, EU region
 
 
 def _text(name: str, default: str = "") -> str:
@@ -58,6 +59,13 @@ class Settings:
     openai_model: str
     groq_model: str
     gemini_model: str
+    # The testers' Langfuse project (app/langfuse_trace.py). Off unless both keys are set. Every run
+    # is sent there in full: the email, the question, the prompts and the replies.
+    langfuse_public_key: str
+    langfuse_secret_key: str
+    langfuse_base_url: str
+    # Who is testing, as Langfuse shows it on each of their runs. Empty: nobody named.
+    tester: str
 
 
 def load() -> Settings:
@@ -77,6 +85,10 @@ def load() -> Settings:
         openai_model=_text("CHATBOT_OPENAI_MODEL"),
         groq_model=_text("CHATBOT_GROQ_MODEL"),
         gemini_model=_text("CHATBOT_GEMINI_MODEL"),
+        langfuse_public_key=_text("LANGFUSE_PUBLIC_KEY"),
+        langfuse_secret_key=_text("LANGFUSE_SECRET_KEY"),
+        langfuse_base_url=(_text("LANGFUSE_BASE_URL") or LANGFUSE_CLOUD).rstrip("/"),
+        tester=_text("CHATBOT_TESTER"),
     )
 
 

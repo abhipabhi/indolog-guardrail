@@ -19,6 +19,8 @@ attrs==26.1.0
     # via
     #   jsonschema
     #   referencing
+backoff==2.2.1
+    # via langfuse
 certifi==2026.7.22
     # via
     #   httpcore
@@ -46,6 +48,8 @@ google-auth==2.59.1
     # via google-genai
 google-genai==2.28.0
     # via langchain-google-genai
+googleapis-common-protos==1.76.0
+    # via opentelemetry-exporter-otlp-proto-http
 groq==0.37.1
     # via langchain-groq
 h11==0.16.0
@@ -65,6 +69,7 @@ httpx==0.28.1
     #   groq
     #   guardrail-test-chatbot
     #   langchain-core
+    #   langfuse
     #   ollama
 httpx2==2.13.1
     # via
@@ -111,6 +116,8 @@ langchain-openai==1.6.7
     # via guardrail-test-chatbot
 langchain-protocol==0.0.19
     # via langchain-core
+langfuse==4.15.4
+    # via guardrail-test-chatbot
 langsmith==0.14.4
     # via langchain-core
 markupsafe==3.0.4
@@ -131,12 +138,39 @@ ollama==0.6.3
     # via langchain-ollama
 openai==3.24.0
     # via langchain-openai
+opentelemetry-api==1.45.0
+    # via
+    #   langfuse
+    #   opentelemetry-exporter-http-transport
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-http-transport==0.66b0
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-common==0.66b0
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-common==1.45.0
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-http==1.45.0
+    # via langfuse
+opentelemetry-proto==1.45.0
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-sdk==1.45.0
+    # via
+    #   langfuse
+    #   opentelemetry-exporter-otlp-common
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-semantic-conventions==0.66b0
+    # via opentelemetry-sdk
 orjson==3.12.0 ; platform_python_implementation != 'PyPy'
     # via langsmith
 packaging==26.3
     # via
     #   altair
     #   langchain-core
+    #   langfuse
     #   langsmith
     #   streamlit
 pandas==3.0.6
@@ -144,7 +178,10 @@ pandas==3.0.6
 pillow==12.3.0
     # via streamlit
 protobuf==7.36.2
-    # via streamlit
+    # via
+    #   googleapis-common-protos
+    #   opentelemetry-proto
+    #   streamlit
 pyarrow==25.0.1
     # via streamlit
 pyasn1==0.6.4
@@ -159,6 +196,7 @@ pydantic==2.13.5
     #   groq
     #   langchain-core
     #   langchain-google-genai
+    #   langfuse
     #   langsmith
     #   ollama
     #   openai
@@ -225,8 +263,13 @@ typing-extensions==4.16.0
     #   httpx2
     #   langchain-core
     #   langchain-protocol
+    #   langfuse
     #   langsmith
     #   openai
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
     #   referencing
@@ -238,7 +281,9 @@ typing-inspection==0.4.4
 tzdata==2026.5 ; sys_platform == 'emscripten' or sys_platform == 'win32'
     # via pandas
 urllib3==2.8.0
-    # via requests
+    # via
+    #   opentelemetry-exporter-http-transport
+    #   requests
 uuid-utils==0.17.1
     # via
     #   langchain-core
@@ -252,6 +297,8 @@ websockets==16.1.1
     #   google-genai
     #   langsmith
     #   streamlit
+wrapt==2.5.1
+    # via langfuse
 xxhash==4.0.1
     # via langsmith
 zstandard==0.25.0

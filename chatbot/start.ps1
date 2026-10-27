@@ -2,6 +2,7 @@
 #
 #   start.bat         double-click it, or type it in Command Prompt
 #   .\start.ps1       in PowerShell
+#   start.bat --langfuse    the same, after asking for the keys of the testers' Langfuse project
 #
 # What start.sh does on a Mac or in Linux, for Windows without WSL:
 #
@@ -17,6 +18,10 @@
 #   * The guardrail: when one answers at GUARDRAIL_URL (http://localhost:8001 unless the settings
 #     file says otherwise), for example the one Docker runs, that one is used. When none does, one
 #     is started here from .venv, without Docker, and stopped again with the chatbot.
+#   * Langfuse: with LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in the settings file (start.bat
+#     --langfuse writes them there), every run is sent to the testers' Langfuse project in full: the
+#     email, the question, the prompts and the replies. A guardrail started here sends its own spans
+#     for each check to the same project, inside the run's trace. That project is not the platform's.
 #
 # The app listens on localhost only. No value from the settings file, and nothing you type at the
 # prompt, is ever printed. This file is plain ASCII so that Windows PowerShell 5.1 reads it as written.
@@ -28,11 +33,22 @@ $Settings = Join-Path $env:USERPROFILE '.guardrail-chatbot.env'
 # Every setting the app reads. A name in the file that is not one of these is a typing mistake.
 $Known = @('CHATBOT_MODEL', 'GOOGLE_API_KEY', 'OPENAI_API_KEY', 'GROQ_API_KEY', 'OLLAMA_BASE_URL', 'CHATBOT_LOG_DIR',
            'GUARDRAIL_URL', 'GUARDRAIL_TIMEOUT_MS', 'CHATBOT_CALL_MODEL_ON_REVIEW', 'CHATBOT_MODEL_TIMEOUT_SECONDS',
-           'CHATBOT_GEMINI_MODEL', 'CHATBOT_OPENAI_MODEL', 'CHATBOT_GROQ_MODEL', 'CHATBOT_OLLAMA_MODEL', 'CHATBOT_PASSWORD')
+           'CHATBOT_GEMINI_MODEL', 'CHATBOT_OPENAI_MODEL', 'CHATBOT_GROQ_MODEL', 'CHATBOT_OLLAMA_MODEL', 'CHATBOT_PASSWORD',
+           'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_BASE_URL', 'CHATBOT_TESTER')
+$LangfuseNames = 'LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_BASE_URL|CHATBOT_TESTER'
 
 function Stop-Here([string]$Message) {
     [Console]::Error.WriteLine("start.ps1: $Message")
     exit 1
+}
+
+$AskLangfuse = $false
+foreach ($argument in $args) {
+    if ($argument -eq '--langfuse') {
+        $AskLangfuse = $true
+    } else {
+        Stop-Here "the one option is --langfuse, which asks for the keys of the testers' Langfuse project. Start with  start.bat  or  start.bat --langfuse"
+    }
 }
 
 # --- the app itself: installed by uv into .venv here, the first time and after an update ------------
@@ -72,7 +88,7 @@ if (-not (Test-Path -LiteralPath $Streamlit)) {
                    'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   Then run start.bat again.')
     }
     Write-Host "Installing the app into $Here\.venv. This happens once and takes a minute or two, longer on a"
-    Write-Host 'slow connection: it downloads about 80 packages (about 500 MB on disk), and Python 3.11 if'
+    Write-Host 'slow connection: it downloads about 90 packages (about 500 MB on disk), and Python 3.11 if'
     Write-Host 'this machine does not have it.'
     Install-App
     Write-Host 'Installed.'
@@ -125,8 +141,61 @@ $item = Get-Item -LiteralPath $Settings -Force
 if ($item.PSIsContainer) { Stop-Here "$Settings is not a file." }
 if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Here "$Settings is a link. Keep the settings in a real file there." }
 
+# --- start.bat --langfuse: the testers' Langfuse project, written into the settings file -----------
+function Read-Trimmed([string]$Prompt) {
+    $typed = Read-Host -Prompt $Prompt
+    if ($null -eq $typed) { return '' }
+    return $typed.Trim()
+}
+if ($AskLangfuse) {
+    Write-Host "Connecting the testers' Langfuse project. Its owner gives you the two keys, and its address when it"
+    Write-Host "is not in Langfuse Cloud's EU region. From now on every run is sent there in full: the email, the"
+    Write-Host 'question, the prompts and the replies. Fake or anonymised emails only, as always.'
+    $public = Read-Trimmed 'Public key (pk-lf-...)'
+    $secure = Read-Host -Prompt 'Secret key (sk-lf-..., not shown)' -AsSecureString
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        $secret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
+    $secret = $secret.Trim()
+    $address = (Read-Trimmed 'Address (press Enter for https://cloud.langfuse.com)').TrimEnd('/')
+    $tester = Read-Trimmed 'Your name or initials, shown on your runs (press Enter to leave it out)'
+    if ($public -cnotmatch '^pk-lf-[A-Za-z0-9-]+$') {
+        Stop-Here 'a public key starts with pk-lf- and has no spaces. Nothing was written. Run start.bat --langfuse again.'
+    }
+    if ($secret -cnotmatch '^sk-lf-[A-Za-z0-9-]+$') {
+        Stop-Here 'a secret key starts with sk-lf- and has no spaces. Nothing was written. Run start.bat --langfuse again.'
+    }
+    if ($address -and $address -notmatch '^(https://[A-Za-z0-9.:/-]+|http://(localhost|127\.0\.0\.1):[0-9]+)$') {
+        Stop-Here 'the address starts with https:// (for example https://us.cloud.langfuse.com). Nothing was written.'
+    }
+    if ($tester -notmatch '^[A-Za-z0-9 ._-]*$') {
+        Stop-Here 'use letters, digits, spaces, dots and dashes in your name. Nothing was written.'
+    }
+    # The other settings are kept as they are.
+    $lines = @([IO.File]::ReadAllLines($Settings) | Where-Object {
+        $_ -notmatch "^\s*(export\s+)?($LangfuseNames)\s*=" -and -not $_.StartsWith("# The testers' Langfuse project") })
+    $lines += "# The testers' Langfuse project. Written by start.ps1 --langfuse; run it again to change it."
+    $lines += "LANGFUSE_PUBLIC_KEY=$public"
+    $lines += "LANGFUSE_SECRET_KEY=$secret"
+    if ($address) { $lines += "LANGFUSE_BASE_URL=$address" }
+    if ($tester) { $lines += "CHATBOT_TESTER=$tester" }
+    [IO.File]::WriteAllLines($Settings, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
+    $secret = $null
+    $lines = $null
+    Write-Host "Wrote the Langfuse keys into $Settings. Every start from now on sends runs to Langfuse;"
+    Write-Host 'to stop that, take the two LANGFUSE_ lines out of that file.'
+    Write-Host ''
+}
+
 # --- settings come from that file and nowhere else ------------------------------------------------
-foreach ($name in @(Get-ChildItem Env: | Where-Object { $_.Name -like 'CHATBOT_*' } | ForEach-Object { $_.Name }) + $Known) {
+# Langfuse's and OpenTelemetry's own variables too: a key or an endpoint set for other work (the
+# platform's Langfuse, say) never takes a test run anywhere.
+$inherited = @(Get-ChildItem Env: | Where-Object { $_.Name -like 'CHATBOT_*' -or $_.Name -like 'LANGFUSE_*' -or $_.Name -like 'OTEL_*' } |
+    ForEach-Object { $_.Name })
+foreach ($name in $inherited + $Known) {
     Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
 }
 
@@ -165,6 +234,19 @@ if (-not $LogDir) { $LogDir = Join-Path $Here 'logs' }
 if ($LogDir.StartsWith('~/') -or $LogDir.StartsWith('~\')) { $LogDir = Join-Path $env:USERPROFILE $LogDir.Substring(2) }
 $values['CHATBOT_LOG_DIR'] = $LogDir
 
+# --- Langfuse: on when both keys are set ------------------------------------------------------------
+$LangfuseAuth = $null
+$LangfuseAt = $null
+if ($values['LANGFUSE_PUBLIC_KEY'] -and $values['LANGFUSE_SECRET_KEY']) {
+    $LangfuseAt = $values['LANGFUSE_BASE_URL']
+    if (-not $LangfuseAt) { $LangfuseAt = 'https://cloud.langfuse.com' }
+    $LangfuseAt = $LangfuseAt.TrimEnd('/')
+    # What the guardrail started below sends with its spans: Basic, public key:secret key.
+    $LangfuseAuth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($values['LANGFUSE_PUBLIC_KEY'] + ':' + $values['LANGFUSE_SECRET_KEY']))
+} elseif ($values['LANGFUSE_PUBLIC_KEY'] -or $values['LANGFUSE_SECRET_KEY']) {
+    Write-Host "NOTE: only one of the two Langfuse keys is in $Settings, so Langfuse is off. Run start.bat --langfuse to set both."
+}
+
 # --- the guardrail: the one that answers at GUARDRAIL_URL, or one started here ---------------------
 $Guardrail = $values['GUARDRAIL_URL']
 if (-not $Guardrail) { $Guardrail = 'http://localhost:8001' }
@@ -190,6 +272,7 @@ $started = $null
 try {
     if (Test-Guardrail) {
         Write-Host "Using the guardrail at $Guardrail."
+        if ($LangfuseAuth) { Write-Host "It was not started here, so its own spans are not in Langfuse. Each run's calls to it are." }
         # One left running from before, Docker's above all, keeps the policy it was given, whatever this
         # copy now holds. Say so when the two differ: results from an older policy are not this one's.
         $running = $null
@@ -247,11 +330,23 @@ try {
             Write-Host "No guardrail answers at $Guardrail, so one is started here, without Docker: the rollout"
             Write-Host 'policy, as the Docker image runs it, with no database and without the classifier, which'
             Write-Host "only observes in that policy. It stops when the chatbot stops. Its log: $log"
-            $env:GUARDRAIL_RULES = $rules
-            $started = Start-Process -FilePath $Python -WorkingDirectory $Here -NoNewWindow -PassThru `
-                -ArgumentList @('-m', 'uvicorn', 'guardrail.app:app', '--host', '127.0.0.1', '--port', $port) `
-                -RedirectStandardOutput $log -RedirectStandardError $errors
-            Remove-Item -LiteralPath 'Env:GUARDRAIL_RULES' -ErrorAction SilentlyContinue
+            # The guardrail is given its policy and, with Langfuse on, where its spans go
+            # (guardrail\guardrail\tracing.py), through this window's environment for the moment it starts.
+            $given = @{ 'GUARDRAIL_RULES' = $rules }
+            if ($LangfuseAuth) {
+                Write-Host "It sends its own spans for each check to Langfuse, inside each run's trace."
+                $given['OTEL_EXPORTER_OTLP_ENDPOINT'] = "$LangfuseAt/api/public/otel"
+                $given['OTEL_EXPORTER_OTLP_HEADERS'] = "Authorization=Basic%20$LangfuseAuth"
+                $given['OTEL_SERVICE_NAME'] = 'indolog-guardrail'
+            }
+            try {
+                foreach ($name in $given.Keys) { Set-Item -LiteralPath "Env:$name" -Value $given[$name] }
+                $started = Start-Process -FilePath $Python -WorkingDirectory $Here -NoNewWindow -PassThru `
+                    -ArgumentList @('-m', 'uvicorn', 'guardrail.app:app', '--host', '127.0.0.1', '--port', $port) `
+                    -RedirectStandardOutput $log -RedirectStandardError $errors
+            } finally {
+                foreach ($name in $given.Keys) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+            }
             $waited = 0
             while (-not (Test-Guardrail)) {
                 if ($started.HasExited) {
@@ -289,6 +384,7 @@ try {
     Write-Host "Settings from ${Settings}: $($named -join ' ')"
     Write-Host 'The screen names every provider a test email can reach, before anything is sent.'
     Write-Host "Results are logged to $(Join-Path $LogDir 'chatbot-runs.csv')"
+    if ($LangfuseAuth) { Write-Host "Every run is also sent, in full, to the testers' Langfuse project at $LangfuseAt." }
     Write-Host 'Starting on http://localhost:8502, for this machine only. Stop it with Ctrl+C.'
     Push-Location -LiteralPath $Here
     try {

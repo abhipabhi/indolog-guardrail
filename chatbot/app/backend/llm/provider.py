@@ -172,6 +172,7 @@ class Chain:
         self._wait = wait
         self.answered_by: str | None = None     # the model that wrote the last reply, when it said
         self.tries = 0                          # how many times the last reply was asked for
+        self.usage: dict | None = None          # the tokens of the last reply, when the provider said
 
     def complete(self, system: str, user: str, *, json_schema: dict | None = None) -> ModelReply:
         """One reply. A busy provider (HTTP 503) is asked again after each wait in WAITS_WHEN_BUSY;
@@ -188,7 +189,7 @@ class Chain:
     def _once(self, system: str, user: str, json_schema: dict | None) -> ModelReply:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        self.answered_by = None
+        self.answered_by, self.usage = None, None
         try:
             first, *rest = self._clients if json_schema is None else [_shaped(client, json_schema) for client in self._clients]
             llm = first.with_fallbacks(rest) if rest else first
@@ -202,6 +203,9 @@ class Chain:
             message, parsed = message.get("raw"), message.get("parsed")
         details = getattr(message, "response_metadata", None) or {}
         self.answered_by = details.get("model_name") or details.get("model") or None
+        tokens = getattr(message, "usage_metadata", None) or {}
+        self.usage = {name: int(tokens[key]) for name, key in (("input", "input_tokens"), ("output", "output_tokens"),
+                                                                ("total", "total_tokens")) if isinstance(tokens.get(key), int)} or None
         # The model's own words. Only where a provider returns the fields and no text are they written out again.
         text = _text(getattr(message, "content", "")) or (json.dumps(parsed, ensure_ascii=False) if isinstance(parsed, dict) else "")
         if details.get("finish_reason") in _FILTERED:

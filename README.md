@@ -11,8 +11,9 @@ the guardrail does and what would happen next, with Google Gemini as the model. 
 installs and starts both: there is no Docker to run and no virtual environment to make.
 
 > **Use fake or anonymised emails only.** When an email passes the guardrail, the whole email is
-> sent to Google, and on the free tier Google may use it to improve its products. Never paste a
-> real customer's email.
+> sent to Google, and on the free tier Google may use it to improve its products. With Langfuse
+> connected, every run is also sent in full to the testers' Langfuse project. Never paste a real
+> customer's email.
 
 The chatbot is a test tool. It is not part of the product.
 
@@ -94,7 +95,7 @@ On Windows (or double-click `start.bat` in that folder):
 ```
 
 The first time, it installs the chatbot and the guardrail into a `.venv` folder there. That takes
-a minute or two: uv downloads about 80 packages, and Python 3.11 if your computer does not have
+a minute or two: uv downloads about 90 packages, and Python 3.11 if your computer does not have
 it. You do not make that folder or switch it on; the script does everything with it.
 
 Then it asks for your Gemini API key. Paste it and press Enter; what you paste is not shown. The
@@ -322,6 +323,70 @@ saved with a leading apostrophe, so opening the file is safe.
 Send the file to the guardrail's owner, the person who asked you to test. It holds the emails you
 pasted, so do not put it anywhere public.
 
+### Your runs in Langfuse
+
+[Langfuse](https://langfuse.com) shows each run step by step: what you sent, each call to the
+guardrail and its full answer, the prompt the model was sent and its reply, and what the user saw.
+Every tester's runs go to one shared project, so the guardrail's owner sees them all in one place.
+That project is the testers' own. It is not the IndoLog platform's Langfuse.
+
+The owner of the project gives you its two keys (a public key, `pk-lf-…`, and a secret key,
+`sk-lf-…`), and its address if it is not in Langfuse Cloud's EU region. Then, in the chatbot's
+folder, on a Mac:
+
+```bash
+./start.sh --langfuse
+```
+
+On Windows:
+
+```powershell
+.\start.bat --langfuse
+```
+
+It asks for the two keys (the secret one is not shown as you paste it), the address (press Enter
+for the EU region), and your name or initials, which Langfuse shows on your runs (press Enter to
+leave it out). It saves them in your settings file and starts the chatbot as usual. You do this
+once: every start after that, with plain `./start.sh` or `.\start.bat`, sends your runs to
+Langfuse.
+
+What changes:
+
+- The yellow box at the top of the screen says that runs go to Langfuse, and to which address.
+- Under each result, beside where it was logged, is a link: **In Langfuse: this run**.
+- In Langfuse, under **Traces**, each run is one trace, named `chatbot chat` or
+  `chatbot email rfq`. Inside it: `guardrail input` (each check of what you sent), `model` (the
+  prompt and the reply, with the tokens used), and `guardrail answer` or `guardrail output` (the
+  check of the reply or the extraction). Each guardrail step holds the guardrail's own timings for
+  each of its checks. The trace's **guardrail** score is the status: `pass`, `review`, `fail` or
+  `needs review`. A run with an edited system prompt is tagged `edited system prompt`. The runs from
+  one browser tab are one session.
+
+Everything you paste goes to Langfuse in full, so the rule is the same as for Gemini: fake or
+anonymised emails only. To stop sending runs there, take the two `LANGFUSE_` lines out of
+`.guardrail-chatbot.env` in your home folder, and start again. Your results file is written
+exactly as before.
+
+The guardrail's own timings are there only when the script started the guardrail. A guardrail that
+was already running (in Docker, say) is used as it is, and the script says that its own spans are
+not in Langfuse. The calls to it still are.
+
+#### For the owner: setting up the project
+
+Once, by whoever owns the testing:
+
+1. Sign up at [cloud.langfuse.com](https://cloud.langfuse.com) (the EU region; the US one is
+   [us.cloud.langfuse.com](https://us.cloud.langfuse.com)). Make an organisation and a project for
+   testing, for example `indolog-guardrail-testing`. Keep it apart from the platform's Langfuse.
+2. In the project, open **Settings**, then **API Keys**, and create a key pair.
+3. Give each tester the public key, the secret key, and the address if it is not the EU region,
+   over a private channel. Whoever has the secret key can send traces to the project and read them
+   back through Langfuse's API, so treat it like a password. To shut a tester out, create a new
+   pair, delete the old one, and give the new one to the others.
+
+How long Langfuse keeps traces depends on the plan. Each trace holds the test emails, which is one
+more reason they must be fake.
+
 ### When you are done
 
 Press Ctrl+C in the window where the chatbot runs. That stops the chatbot and the guardrail.
@@ -433,6 +498,18 @@ working as it is. Once uv is on your computer, `./start.sh` uses it for updates 
 
 **You want to change or remove your key.** Edit `.guardrail-chatbot.env` in your home folder, or
 delete it and start again. `chatbot/.env.example` lists every setting.
+
+**The screen says "Langfuse did not accept the keys".** The keys were mistyped, belong to another
+region, or were replaced. Run `./start.sh --langfuse` (`.\start.bat --langfuse` on Windows) and give
+them again. If the project is in the US region, give `https://us.cloud.langfuse.com` as its address.
+
+**The screen says "Langfuse could not be reached".** The runs are not lost from your results file,
+and the chatbot works as before. They are not in Langfuse until it can be reached: check the
+internet connection, and the address in `LANGFUSE_BASE_URL`.
+
+**A run is in Langfuse, but the guardrail steps have no timings for each check.** The guardrail was
+already running when you started, so it was not started with the keys. Stop it, and start again
+(see the older-policy entry above).
 
 ### With Docker (optional)
 

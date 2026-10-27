@@ -4,13 +4,14 @@ Screens only. What a run does is in app/chat.py; what is logged is in app/runlog
 """
 import os
 import sys
+import uuid
 
 # Add the project root to sys.path so 'app' can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 import streamlit as st  # noqa: E402
 
-from app import access, chat, runlog  # noqa: E402
+from app import access, chat, langfuse_trace, runlog  # noqa: E402
 from app.backend.llm import provider  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.guardrail import guardrail_io  # noqa: E402
@@ -27,6 +28,7 @@ QUESTION_HELP = ("Intent chat: type a question to test chat, for example 'write 
 EMAIL_INTENTS = ("rfq",)
 
 st.set_page_config(page_title="Guardrail test chatbot", page_icon="🤖", layout="wide")
+langfuse_trace.install()        # once a process; nothing when Langfuse is off
 
 
 # --- who may open it -----------------------------------------------------------------------------
@@ -107,13 +109,17 @@ def log_folder():
 def header(folder) -> None:
     st.title("Guardrail test chatbot")
     going_to = provider.describe(settings)
-    stored = ["the guardrail's database, for a day", f"the run log on this machine ({folder / runlog.FILE})" if folder else None]
+    stored = ["the guardrail's database, for a day", f"the run log on this machine ({folder / runlog.FILE})" if folder else None,
+              f"**the testers' Langfuse project** ({settings.langfuse_base_url}), in full, with the prompts and the replies"
+              if langfuse_trace.enabled() else None]
     st.warning("**Use fake or anonymised emails only.** Whatever you paste is kept in "
                + " and in ".join(place for place in stored if place)
                + (". When it passes the guardrail it is also **sent to a model provider**: " + "; if that call fails, to ".join(going_to) + "."
                   if going_to else ". No model provider is connected, so it is sent nowhere else."))
     if provider.problem(settings):
         st.error(provider.problem(settings))
+    if langfuse_trace.problem():
+        st.error(langfuse_trace.problem())
     left, right = st.columns(2)
     label = policy()
     left.markdown(f"**Guardrail policy:** `{label}`" if label else "**Guardrail policy:** unknown. The guardrail did not answer.")
@@ -195,12 +201,16 @@ def form(folder) -> None:
     except Exception as problem:  # noqa: BLE001  a provider's client can refuse its settings in many ways
         st.error(f"The model could not be set up ({type(problem).__name__}). Nothing was sent anywhere.")
         return
+    model = langfuse_trace.traced_model(model)     # inside the edited prompt: Langfuse records what was really sent
     if edited and model is not None:
         model = chat.EditedSystemPrompt(model, edited)
+    session = st.session_state.setdefault("langfuse_session", f"chatbot-{uuid.uuid4().hex[:12]}")
     with st.spinner("Checking"):
-        run = chat.run_message(message, model, call_model_on_review=settings.call_model_on_review,
-                               schema=intent_schemas().get(message.intent) if email_run else None)
-    last = {"run": run, "message": message, "answered_by": getattr(model, "answered_by", None),
+        run, trace = langfuse_trace.traced_run(
+            message, lambda: chat.run_message(message, model, call_model_on_review=settings.call_model_on_review,
+                                              schema=intent_schemas().get(message.intent) if email_run else None),
+            session=session, edited_prompt=bool(edited))
+    last = {"run": run, "message": message, "answered_by": getattr(model, "answered_by", None), "trace": trace,
             "tries": getattr(model, "tries", None), "logged": None, "log_problem": None,
             "email_is_question": chat.email_is_question(message), "system_prompt": edited,
             "system_sent": getattr(model, "sent", None)}
@@ -297,7 +307,9 @@ def show(last: dict, folder) -> None:
         if last["log_problem"]:
             st.error(f"This run was NOT written to the run log ({last['log_problem']}).")
             return
-        st.caption(f"Logged as one row in `{last['logged']}`.")
+        st.caption(f"Logged as one row in `{last['logged']}`."
+                   + ("" if not last.get("trace") else f" In Langfuse: [this run]({last['trace']['url']})." if last["trace"]["url"]
+                      else f" Sent to Langfuse as trace `{last['trace']['id']}`."))
         st.text_input("Notes for this run (optional)", key="note")
         if st.button("Save note"):
             if runlog.set_note(folder, run.request_ids[0], st.session_state["note"]):

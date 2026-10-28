@@ -56,7 +56,7 @@ Type the commands of these steps in the Terminal app.
 Then close PowerShell and open it again, so that it finds uv and git. Type the commands of these
 steps in PowerShell.
 
-The Windows way has not yet been run on a Windows machine. If a step does not behave as written,
+Testers have used the Windows way since 15 October 2026. If a step does not behave as written,
 tell the person who asked you to test.
 
 ### Step 1: get the code
@@ -551,7 +551,8 @@ starting its own; the health page then shows `"injection_classifier":"loaded"`.
   (each with the same result as from the guardrail in Docker), stopping with Ctrl+C, starting
   again, and an update of an install made before uv sync.
 - **Windows 10 and 11**, with `start.bat` in PowerShell or Command Prompt. Written for Windows
-  PowerShell 5.1, which both have. Not yet run on a Windows machine.
+  PowerShell 5.1, which both have. Run by testers on Windows since 15 October 2026. Connecting
+  Langfuse (`.\start.bat --langfuse`) has not been run on Windows yet.
 - **Linux**, and Windows inside WSL: `./start.sh`, as on a Mac. This version of the script has not
   been run there; an earlier one, which installed the same packages, ran on Linux with only
   Python 3.12 on the machine, and uv fetched 3.11.

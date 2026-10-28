@@ -35,6 +35,8 @@ import contextlib
 import contextvars
 import json
 import logging
+import os
+import ssl
 import threading
 from typing import Any, Callable
 
@@ -71,6 +73,7 @@ def client():
             try:
                 from langfuse import Langfuse
 
+                trust_for_traces()
                 _client = Langfuse(public_key=settings.langfuse_public_key, secret_key=settings.langfuse_secret_key,
                                    base_url=settings.langfuse_base_url, sample_rate=1.0, flush_interval=1.0)
             except Exception:  # noqa: BLE001  an observer never stops the work
@@ -78,6 +81,19 @@ def client():
                 return None
             threading.Thread(target=_look_up_project, args=(_client,), daemon=True).start()
     return _client
+
+
+def trust_for_traces() -> None:
+    """The certificates the trace exporter checks Langfuse's against. It sends with urllib3 and
+    Python's own certificate store, and a python.org Python on a Mac has none until its "Install
+    Certificates" step is run: every send then fails with CERTIFICATE_VERIFY_FAILED and no run
+    reaches Langfuse. Where the store is empty, the exporter is given certifi's bundle, which is
+    installed here already. A store that has certificates (Windows, most Linux) is left as it is."""
+    if ssl.create_default_context().cert_store_stats()["x509_ca"]:
+        return
+    import certifi
+
+    os.environ.setdefault("OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE", certifi.where())
 
 
 def _look_up_project(langfuse) -> None:

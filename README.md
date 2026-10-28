@@ -507,6 +507,13 @@ them again. If the project is in the US region, give `https://us.cloud.langfuse.
 and the chatbot works as before. They are not in Langfuse until it can be reached: check the
 internet connection, and the address in `LANGFUSE_BASE_URL`.
 
+**No runs reach Langfuse, and the terminal or `logs/guardrail.log` shows "Transient error" or
+"Failed to export spans".** The text after it says why. `CERTIFICATE_VERIFY_FAILED` came from a
+Python with no certificates of its own (python.org's, on a Mac); the app now gives it the ones it
+installs, so update (see [Updating to a newer version](#updating-to-a-newer-version)) and start
+again. Anything else (a proxy, a firewall) is the network between you and Langfuse: tell the person
+who asked you to test, with that line.
+
 **A run is in Langfuse, but the guardrail steps have no timings for each check.** The guardrail was
 already running when you started, so it was not started with the keys. Stop it, and start again
 (see the older-policy entry above).

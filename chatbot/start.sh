@@ -323,6 +323,10 @@ else
             if [ -n "$LANGFUSE_AUTH" ]; then
                 export OTEL_EXPORTER_OTLP_ENDPOINT="$LANGFUSE_AT/api/public/otel" OTEL_SERVICE_NAME=indolog-guardrail \
                        OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20$LANGFUSE_AUTH"
+                # A Python with no certificates of its own (python.org's, on a Mac) cannot check
+                # Langfuse's: the exporter is given certifi's (app/langfuse_trace.py, trust_for_traces).
+                certificates=$("$HERE/.venv/bin/python" -c 'import ssl, certifi; print("" if ssl.create_default_context().cert_store_stats()["x509_ca"] else certifi.where())' 2>/dev/null || true)
+                [ -z "$certificates" ] || export OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE="$certificates"
             fi
             exec "$HERE/.venv/bin/python" -m uvicorn guardrail.app:app --host 127.0.0.1 --port "$PORT"
         ) > "$CHATBOT_LOG_DIR/guardrail.log" 2>&1 &

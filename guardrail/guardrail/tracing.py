@@ -17,6 +17,12 @@ told and what it would have been told, the policy version, and per check its mod
 score, time and measures. Numbers and ids. NEVER text: not the email, not a question, not an
 extracted value, not a matched snippet.
 
+Langfuse reads a span's input and output from `langfuse.observation.input` and `.output` and shows
+"undefined" where they are missing, so each span also carries the same codes there, as JSON: for the
+stage, the request id, stage and policy in, the status out; for a check, the check and its mode in,
+its verdict, reason, rules, score and measures out. Checks are marked as Langfuse "guardrail"
+observations, and one that fired as a warning. Other backends ignore these attributes.
+
 Spans are written after the fact, from the finished decision, with each check's real start and end
 times. The stage span ends when the decision is recorded; where the policy runs a shadow check after
 the response, that is after the caller had its answer, and the check's own span shows when it ran.
@@ -26,6 +32,7 @@ appears inside the backend's trace of the same request.
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 import os
 import time
@@ -50,6 +57,13 @@ def endpoint() -> str | None:
     return os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or None
 
 
+def _langfuse(given: dict, came_to: dict, **more) -> dict:
+    """The attributes Langfuse shows as a span's input and output (and `more`, e.g. its type)."""
+    return {"langfuse.observation.input": json.dumps(given, default=str),
+            "langfuse.observation.output": json.dumps(came_to, default=str),
+            **{f"langfuse.observation.{name}": value for name, value in more.items()}}
+
+
 class SpanObserver:
     """An engine observer: `engine.OBSERVERS.append(SpanObserver(tracer))`."""
 
@@ -69,7 +83,9 @@ class SpanObserver:
             "guardrail.request_id": decision.request_id, "guardrail.stage": decision.stage,
             "guardrail.status": decision.status, "guardrail.would_be": decision.would_be,
             "guardrail.policy_version": decision.rules_version,
-            **{f"guardrail.measure.{name}": value for name, value in decision.measures.items()}})
+            **{f"guardrail.measure.{name}": value for name, value in decision.measures.items()},
+            **_langfuse({"request_id": decision.request_id, "stage": decision.stage, "policy_version": decision.rules_version},
+                        {"status": decision.status, "would_be": decision.would_be, "measures": decision.measures})})
         inside = trace.set_span_in_context(stage)
         for outcome in decision.outcomes:
             began = outcome.started_ns or started
@@ -82,6 +98,13 @@ class SpanObserver:
                 attributes["guardrail.check.rules"] = outcome.rules
             if outcome.score is not None:
                 attributes["guardrail.check.score"] = float(outcome.score)
+            fired = not outcome.error and outcome.verdict not in ("allow", "not_observed")
+            attributes.update(_langfuse(
+                {"check": outcome.filter_id, "mode": outcome.mode},
+                {"verdict": outcome.verdict, "reason": outcome.reason_code, "rules": outcome.rules,
+                 "score": None if outcome.score is None else float(outcome.score), "error": outcome.error,
+                 "measures": outcome.measures, "ms": outcome.latency_ms},
+                type="guardrail", **({"level": "WARNING"} if fired else {})))
             span = self.tracer.start_span(f"guardrail.check.{outcome.filter_id}", context=inside, start_time=began,
                                           attributes=attributes)
             if outcome.error:

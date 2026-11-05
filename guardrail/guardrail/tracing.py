@@ -99,15 +99,22 @@ class SpanObserver:
             if outcome.score is not None:
                 attributes["guardrail.check.score"] = float(outcome.score)
             fired = not outcome.error and outcome.verdict not in ("allow", "not_observed")
+            # A watch-only check this guardrail is not set up to run (its model or packages are not
+            # installed, or it needs a store the service does not keep) is not a failure: nothing
+            # follows from it (engine._not_observed). Shown as a note, so a real error stands out.
+            not_set_up = outcome.verdict == "not_observed" and (outcome.reason_code or "").endswith(".unavailable")
+            level = ({"level": "WARNING"} if fired else
+                     {"status_message": f"not observed: {outcome.reason_code} (this guardrail is not set up to run it)"}
+                     if not_set_up else {})
             attributes.update(_langfuse(
                 {"check": outcome.filter_id, "mode": outcome.mode},
                 {"verdict": outcome.verdict, "reason": outcome.reason_code, "rules": outcome.rules,
                  "score": None if outcome.score is None else float(outcome.score), "error": outcome.error,
                  "measures": outcome.measures, "ms": outcome.latency_ms},
-                type="guardrail", **({"level": "WARNING"} if fired else {})))
+                type="guardrail", **level))
             span = self.tracer.start_span(f"guardrail.check.{outcome.filter_id}", context=inside, start_time=began,
                                           attributes=attributes)
-            if outcome.error:
+            if outcome.error and not not_set_up:
                 span.set_status(Status(StatusCode.ERROR, outcome.reason_code or "error"))
             span.end(end_time=began + int(outcome.latency_ms * 1e6))
         stage.end(end_time=ended)
